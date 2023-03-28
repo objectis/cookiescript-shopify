@@ -1,0 +1,6 @@
+import ReactDOM from "react-dom";
+import "./assets/scss/app.scss";
+
+import App from "./App";
+
+ReactDOM.render(<App />, document.getElementById("app"));
