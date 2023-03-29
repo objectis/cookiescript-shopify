@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
+use Shopify\Exception\CookieNotFoundException;
+use Shopify\Exception\MissingArgumentException;
 use Shopify\Rest\Admin2023_01\ScriptTag;
 use Shopify\Utils;
 use stdClass;
@@ -14,17 +16,11 @@ class ScriptController extends Controller
     {
         $url = $request->get('url');
 
-        if(is_null($url)) {
+        if (is_null($url)) {
             return response('Invalid URL', 400);
         }
 
-        $this->test_session = Utils::loadCurrentSession(
-            $request->header(),
-            $request->cookie(),
-            false
-        );
-
-        $script_tag = new ScriptTag($this->test_session);
+        $script_tag = new ScriptTag($this->loadCurrentSession($request),);
         $script_tag->event = "onload";
         $script_tag->src = $url;
         $script_tag->save(
@@ -39,14 +35,8 @@ class ScriptController extends Controller
         $pattern = '/\.cookie-script\.com\/s\/[a-zA-Z0-9]{32}/';
         $matches = [];
 
-        $this->test_session = Utils::loadCurrentSession(
-            $request->header(),
-            $request->cookie(),
-            false
-        );
-
         $scripts = ScriptTag::all(
-            $this->test_session,
+            $this->loadCurrentSession($request),
             [],
             []
         );
@@ -66,17 +56,25 @@ class ScriptController extends Controller
 
     public function removeScript(Request $request, $id)
     {
-        $this->test_session = Utils::loadCurrentSession(
-            $request->header(),
-            $request->cookie(),
-            false
-        );
-
         return ScriptTag::delete(
-            $this->test_session,
+            $this->loadCurrentSession($request),
             $id,
             [],
             []
         );
     }
+
+    /**
+     * @throws CookieNotFoundException
+     * @throws MissingArgumentException
+     */
+    private function loadCurrentSession(Request $request): ?\Shopify\Auth\Session
+    {
+        return Utils::loadCurrentSession(
+            $request->header(),
+            $request->cookie(),
+            false
+        );
+    }
+
 }
