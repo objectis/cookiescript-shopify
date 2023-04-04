@@ -291,3 +291,6 @@ pnpm dev --tunnel-url https://randomly-generated-hostname.trycloudflare.com:3000
 -   [App authentication](https://shopify.dev/docs/apps/auth)
 -   [Shopify CLI](https://shopify.dev/docs/apps/tools/cli)
 -   [Shopify API Library documentation](https://github.com/Shopify/shopify-api-php/tree/main/docs)
+
+
+GDPR -- https://github.com/Shopify/shopify-api-js/issues/256
