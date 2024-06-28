@@ -4,9 +4,9 @@ import Minus from "../../assets/images/icons/minus.svg"
 export default function AddedScripts({scripts, handleScriptRemove}) {
   return (
     <>
-      {scripts && scripts.map((script) => {
+      {scripts && scripts.map((script, i) => {
         return (
-          <div className="cookie-script__added-scripts">
+          <div key={i} className="cookie-script__added-scripts">
             <div key={script.id} className="cookie-script__added-script">
               <div>{script.src}</div>
             </div>

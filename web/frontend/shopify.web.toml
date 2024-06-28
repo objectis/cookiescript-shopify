@@ -3,3 +3,5 @@ type="frontend"
 [commands]
 dev = "npm run dev"
 build = "npm run build"
+
+scopes = "read_script_tags,write_script_tags,read_themes,write_themes"

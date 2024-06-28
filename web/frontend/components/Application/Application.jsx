@@ -4,6 +4,7 @@ import ScriptForm from "../ScriptForm"
 import CookieScriptInformation from "../CookieScriptInformation"
 import Cookie from "../../assets/images/icons/cookie.svg"
 import {useAuthenticatedFetch} from "../../hooks"
+import GoogleConsentMode from "../GoogleConsentMode/index.js"
 
 export function Application() {
   const fetch = useAuthenticatedFetch()
@@ -48,7 +49,7 @@ export function Application() {
   }, [])
 
 return (
-  <>
+  <div className="cookie-script-settings">
     <h2 className="header">Cookie Script Settings</h2>
     <div className="cookie-script">
       <section>
@@ -81,6 +82,8 @@ return (
         : null
       }
     </div>
-  </>
-)
-}
+    <div>
+        <GoogleConsentMode />
+    </div>
+  </div>
+)}

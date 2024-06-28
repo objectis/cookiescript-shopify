@@ -1,10 +1,8 @@
 <?php
 
+use App\Http\Controllers\GoogleConsentController;
 use App\Http\Controllers\ScriptController;
 use Illuminate\Support\Facades\Route;
-use Illuminate\Http\Request;
-use Shopify\Rest\Admin2023_01\ScriptTag;
-use Shopify\Utils;
 
 /*
 |--------------------------------------------------------------------------
@@ -19,3 +17,7 @@ use Shopify\Utils;
 Route::post('/add-script', [ScriptController::class, 'addScript']);
 Route::get('/get-script-tags', [ScriptController::class, 'getScripts']);
 Route::delete('/remove-script-tag/{id}', [ScriptController::class, 'removeScript']);
+Route::post('/google-consent-mode', [GoogleConsentController::class, 'store']);
+Route::get('/store-script', [ScriptController::class, 'getScriptContent']);
+Route::post('/add-script-tag', [ScriptController::class, 'addScriptTag']);
+Route::get('/get-stored-settings', [GoogleConsentController::class, 'getStoredSettings']);
