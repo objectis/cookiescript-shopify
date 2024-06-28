@@ -18,7 +18,12 @@ class ConsentSetting extends Model
         'functionality_storage',
         'personalization_storage',
         'security_storage',
-        'wait_for_update'
+        'wait_for_update',
+        'google_consent_enabled',
+    ];
+
+    protected $casts = [
+        'google_consent_enabled' => 'boolean',
     ];
 
     public function regionalConsents()

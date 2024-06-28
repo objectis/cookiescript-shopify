@@ -6,10 +6,17 @@
   border-color: transparent;
   color: $white;
   cursor: pointer;
+  display: flex;
+  align-items: center;
 
   &--primary {
     background-color: $blue;
     cursor: pointer;
+  }
+  
+  &--secondary {
+    background-color: #172231;
+    color: #fff;
   }
 
   &--remove {
@@ -33,5 +40,14 @@
   &--disabled {
     background: $gray;
     cursor: initial;
+  }
+  
+  &--delete {
+    border: none;
+    background: none;
+    font-weight: 700;
+    color: #23374d;
+    padding: 8px 0;
+    cursor: pointer;
   }
 }

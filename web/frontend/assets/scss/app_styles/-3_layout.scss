@@ -1,4 +1,5 @@
-@-webkit-keyframes rotating /* Safari and Chrome */ {
+@-webkit-keyframes rotating /* Safari and Chrome */
+{
   from {
     -webkit-transform: rotate(0deg);
     -o-transform: rotate(0deg);
@@ -10,6 +11,7 @@
     transform: rotate(360deg);
   }
 }
+
 @keyframes rotating {
   from {
     -ms-transform: rotate(0deg);
@@ -26,6 +28,7 @@
     transform: rotate(360deg);
   }
 }
+
 .rotating {
   -webkit-animation: rotating 2s linear infinite;
   -moz-animation: rotating 2s linear infinite;
@@ -39,23 +42,49 @@
   margin-bottom: 24px;
 }
 
-.cookie-script {
+.Polaris-Page--narrowWidth {
+  width: 100%;
+}
+
+.cookie-script-home {
+  .Polaris-Page--narrowWidth {
+    font-family: Inter, serif;
+    max-width: 100%;
+  }
+}
+
+.cookie-script-settings {
+  display: flex;
+  width: 100%;
+  
+  .cookie-script {
+    height: fit-content;
+    width: 50%;
+    margin-right: 24px;
+  }
+  
+  .google-consent-mode {
+    width: 50%;
+  }
+}
+
+.form-wrapper, .cookie-script {
   background-color: $white;
-  box-shadow: 2px 2px 7px 1px rgba(2,2,2, .28);
+  box-shadow: 2px 2px 7px 1px rgba(2, 2, 2, .28);
   border-color: $white;
   border-radius: 5px;
   padding: 24px;
   font-size: 16px;
   position: relative;
-
+  
   a {
     color: $blue;
   }
-
+  
   &__header {
     margin: 0 0 24px;
   }
-
+  
   &__added-script {
     border: 1px solid $gray;
     border-radius: 10px;
@@ -68,10 +97,10 @@
     display: flex;
     word-break: break-all;
   }
-
+  
   &__added-scripts {
     display: flex;
-
+    
     &--remove-script {
       width: 10%;
       display: flex;
@@ -80,27 +109,19 @@
       margin-bottom: 12px;
     }
   }
-
+  
   &__information {
     margin: 24px 0;
-
+    
     h2 {
       font-weight: 500;
     }
-
+    
     li, p {
       margin-bottom: 12px;
     }
   }
-
-  &__cookie {
-    position: absolute;
-    width: 175px;
-    right: -168px;
-    bottom: -65px;
-    z-index: -1;
-  }
-
+  
   &__loading-cover {
     position: absolute;
     top: 0;
@@ -112,7 +133,7 @@
     justify-content: center;
     z-index: 1111;
     backdrop-filter: blur(2px);
-
+    
     img {
       width: 130px;
     }

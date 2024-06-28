@@ -40,7 +40,7 @@ export default function ScriptForm({handleSubmit, isLoading}) {
                   <ErrorMessage name="script" component="span"/>
                 </div>
                 : null}
-              <button className="btn btn--primary" type="submit" disabled={!isLoading}>Add</button>
+              <button className="btn btn--primary" type="submit" disabled={!isLoading}>Add Script</button>
             </Form>
           )}
         </Formik>

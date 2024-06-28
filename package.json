@@ -12,8 +12,8 @@
     "info": "shopify app info"
   },
   "dependencies": {
-    "@shopify/app": "3.44.1",
-    "@shopify/cli": "3.44.1"
+    "@shopify/app": "^3.51.1",
+    "@shopify/cli": "^3.51.1"
   },
   "author": "Arturas"
 }

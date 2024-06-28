@@ -78,92 +78,164 @@ class ScriptController extends Controller
 
             $shop = $session->getShop();
             $accessToken = $session->getAccessToken();
-            $googleConsentModeScript = $this->createGoogleConsentModeScript($request);
+            $settings = $this->getSettings($request);
 
-            $scriptTagContent = "
-                <script data-cs-plugin=\"shopify\">
-                    {$googleConsentModeScript}
-                </script>
-            ";
-
-            $themeResponse = Http::withHeaders([
-                'X-Shopify-Access-Token' => $accessToken,
-            ])->get("https://{$shop}/admin/api/2023-04/themes.json");
-
-            if (!$themeResponse->successful()) {
-                Log::error('Failed to fetch themes', ['response' => $themeResponse->body()]);
-                return response()->json([
-                    'error' => 'Failed to fetch themes',
-                    'details' => $themeResponse->body()
-                ], $themeResponse->status());
+            if (!$settings->global_consent->google_consent_enabled) {
+                return $this->removeGoogleConsentModeScript($shop, $accessToken);
             }
 
-            $themes = $themeResponse->json('themes');
-            $mainTheme = collect($themes)->firstWhere('role', 'main');
+            return $this->addGoogleConsentModeScript($shop, $accessToken, $request);
+        } catch (CookieNotFoundException | MissingArgumentException $e) {
+            Log::error('Session load error', ['exception' => $e]);
+            return response()->json(['error' => 'Failed to load session', 'details' => $e->getMessage()], 500);
+        }
+    }
 
-            if (!$mainTheme) {
-                return response()->json(['error' => 'Main theme not found'], 404);
-            }
+    private function getSettings(Request $request)
+    {
+        $googleConsentController = new GoogleConsentController();
+        $getGoogleConsentModeSettings = $googleConsentController->getStoredSettings($request);
+        return json_decode($getGoogleConsentModeSettings->getContent());
+    }
 
-            $themeId = $mainTheme['id'];
+    private function removeGoogleConsentModeScript($shop, $accessToken)
+    {
+        $themeId = $this->getMainThemeId($shop, $accessToken);
 
-            $assetResponse = Http::withHeaders([
-                'X-Shopify-Access-Token' => $accessToken,
-            ])->put("https://{$shop}/admin/api/2023-04/themes/{$themeId}/assets.json", [
+        if (!$themeId) {
+            return response()->json(['error' => 'Main theme not found'], 404);
+        }
+
+        if (
+            $this->deleteScriptSnippet($shop, $accessToken, $themeId)
+            && $this->updateLayout($shop, $accessToken, $themeId)
+        ) {
+            return response()->json(["OK"]);
+        }
+
+        return response()->json(['error' => 'Failed to remove script'], 500);
+    }
+
+    private function addGoogleConsentModeScript($shop, $accessToken, Request $request)
+    {
+        $themeId = $this->getMainThemeId($shop, $accessToken);
+
+        if (!$themeId) {
+            return response()->json(['error' => 'Main theme not found'], 404);
+        }
+
+        $googleConsentModeScript = $this->createGoogleConsentModeScript($request);
+        $scriptTagContent = $this->generateScriptTagContent($googleConsentModeScript);
+
+        if ($this->createScriptSnippet($shop, $accessToken, $themeId, $scriptTagContent) && $this->updateLayout($shop, $accessToken, $themeId)) {
+            return response()->json(["OK"]);
+        }
+
+        return response()->json(['error' => 'Failed to add script'], 500);
+    }
+
+    private function getMainThemeId($shop, $accessToken)
+    {
+        $themeResponse = Http::withHeaders(['X-Shopify-Access-Token' => $accessToken])
+            ->get("https://{$shop}/admin/api/2023-04/themes.json");
+
+        if (!$themeResponse->successful()) {
+            Log::error('Failed to fetch themes', ['response' => $themeResponse->body()]);
+            return null;
+        }
+
+        $themes = $themeResponse->json('themes');
+        $mainTheme = collect($themes)->firstWhere('role', 'main');
+
+        return $mainTheme ? $mainTheme['id'] : null;
+    }
+
+    private function deleteScriptSnippet($shop, $accessToken, $themeId)
+    {
+        $deleteResponse = Http::withHeaders(['X-Shopify-Access-Token' => $accessToken])
+            ->delete("https://{$shop}/admin/api/2023-04/themes/{$themeId}/assets.json", [
+                'asset' => ['key' => 'snippets/google_consent_mode_script.liquid']
+            ]);
+
+        if (!$deleteResponse->successful()) {
+            Log::error('Failed to delete script snippet', ['response' => $deleteResponse->body()]);
+            return false;
+        }
+
+        return true;
+    }
+
+    private function createScriptSnippet($shop, $accessToken, $themeId, $scriptTagContent)
+    {
+        $assetResponse = Http::withHeaders(['X-Shopify-Access-Token' => $accessToken])
+            ->put("https://{$shop}/admin/api/2023-04/themes/{$themeId}/assets.json", [
                 'asset' => [
                     'key' => 'snippets/google_consent_mode_script.liquid',
                     'value' => $scriptTagContent,
                 ]
             ]);
 
-            if (!$assetResponse->successful()) {
-                Log::error('Failed to create script snippet', ['response' => $assetResponse->body()]);
-                return response()->json(['error' => 'Failed to create script snippet',
-                    'details' => $assetResponse->body()
-                ], $assetResponse->status());
-            }
+        if (!$assetResponse->successful()) {
+            Log::error('Failed to create script snippet', ['response' => $assetResponse->body()]);
+            return false;
+        }
 
-            $includeSnippet = '{% include "google_consent_mode_script" %}';
-            $layoutResponse = Http::withHeaders([
-                'X-Shopify-Access-Token' => $accessToken,
-            ])->get("https://{$shop}/admin/api/2023-04/themes/{$themeId}/assets.json", [
+        return true;
+    }
+
+    private function updateLayout($shop, $accessToken, $themeId)
+    {
+        $layoutResponse = Http::withHeaders(['X-Shopify-Access-Token' => $accessToken])
+            ->get("https://{$shop}/admin/api/2023-04/themes/{$themeId}/assets.json", [
                 'asset[key]' => 'layout/theme.liquid',
             ]);
 
-            if (!$layoutResponse->successful()) {
-                Log::error('Failed to fetch layout file', ['response' => $layoutResponse->body()]);
-                return response()->json(['error' => 'Failed to fetch layout file',
-                    'details' => $layoutResponse->body()
-                ], $layoutResponse->status());
-            }
+        if (!$layoutResponse->successful()) {
+            Log::error('Failed to fetch layout file', ['response' => $layoutResponse->body()]);
+            return false;
+        }
 
-            $layoutContent = $layoutResponse->json('asset')['value'];
+        $layoutContent = $layoutResponse->json('asset')['value'];
+        $includeSnippet = '{% include "google_consent_mode_script" %}';
 
-            if (strpos($layoutContent, $includeSnippet) === false) {
-                $layoutContent = str_replace('</head>', "{$includeSnippet}\n</head>", $layoutContent);
+        if (strpos($layoutContent, $includeSnippet) !== false) {
+            $layoutContent = str_replace($includeSnippet, '', $layoutContent);
 
-                $updateLayoutResponse = Http::withHeaders([
-                    'X-Shopify-Access-Token' => $accessToken,
-                ])->put("https://{$shop}/admin/api/2023-04/themes/{$themeId}/assets.json", [
+            $updateLayoutResponse = Http::withHeaders(['X-Shopify-Access-Token' => $accessToken])
+                ->put("https://{$shop}/admin/api/2023-04/themes/{$themeId}/assets.json", [
                     'asset' => [
                         'key' => 'layout/theme.liquid',
                         'value' => $layoutContent,
                     ]
                 ]);
 
-                if (!$updateLayoutResponse->successful()) {
-                    Log::error('Failed to update layout file', ['response' => $updateLayoutResponse->body()]);
-                    return response()->json(['error' => 'Failed to update layout file',
-                        'details' => $updateLayoutResponse->body()
-                    ], $updateLayoutResponse->status());
-                }
+            if (!$updateLayoutResponse->successful()) {
+                Log::error('Failed to update layout file', ['response' => $updateLayoutResponse->body()]);
+                return false;
             }
+        } else {
+            $layoutContent = str_replace('</head>', "{% include \"google_consent_mode_script\" %}\n</head>", $layoutContent);
 
-            return response()->json(["OK"]);
-        } catch (CookieNotFoundException | MissingArgumentException $e) {
-            Log::error('Session load error', ['exception' => $e]);
-            return response()->json(['error' => 'Failed to load session', 'details' => $e->getMessage()], 500);
+            $updateLayoutResponse = Http::withHeaders(['X-Shopify-Access-Token' => $accessToken])
+                ->put("https://{$shop}/admin/api/2023-04/themes/{$themeId}/assets.json", [
+                    'asset' => [
+                        'key' => 'layout/theme.liquid',
+                        'value' => $layoutContent,
+                    ]
+                ]);
+
+            if (!$updateLayoutResponse->successful()) {
+                Log::error('Failed to update layout file', ['response' => $updateLayoutResponse->body()]);
+                return false;
+            }
         }
+
+        return true;
+    }
+
+    private function generateScriptTagContent($googleConsentModeScript)
+    {
+        return "<script data-cs-plugin=\"shopify\">\n{$googleConsentModeScript}\n</script>";
     }
 
     public function createGoogleConsentModeScript(Request $request)
@@ -206,6 +278,8 @@ class ScriptController extends Controller
         ";
 
         foreach ($regionalSettings as $regional) {
+            $encodedRegionCode = json_encode(array_map('trim', explode(',', $regional['region'])));
+
             $googleConsentModeScript .= "
         gtag('consent', 'default', {
             ad_storage: '{$regional['ad_storage']}',
@@ -216,7 +290,7 @@ class ScriptController extends Controller
             personalization_storage: '{$regional['personalization_storage']}',
             security_storage: '{$regional['security_storage']}',
             wait_for_update: {$regional['wait_for_update']},
-            region: '{$regional['region']}'
+            region: JSON.parse('{$encodedRegionCode}'.replace(/&quot;/g, '\"'))
         });
         ";
         }

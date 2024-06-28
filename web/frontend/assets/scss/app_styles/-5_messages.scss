@@ -1,5 +1,7 @@
-.message {
-  &__warning{
-
-  }
+.error-message {
+  color: red;
+  font-size: 14px;
+  position: absolute;
+  bottom: 0;
+  right: 0;
 }

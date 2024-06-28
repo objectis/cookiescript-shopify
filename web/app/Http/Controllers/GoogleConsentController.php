@@ -6,6 +6,7 @@ use App\Http\Controllers\Traits\SessionTrait;
 use App\Models\ConsentSetting;
 use App\Models\RegionalConsent;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Validator;
 
 class GoogleConsentController extends Controller
 {
@@ -29,16 +30,22 @@ class GoogleConsentController extends Controller
             'functionality_storage',
             'personalization_storage',
             'security_storage',
-            'wait_for_update'
+            'wait_for_update',
+            'google_consent_enabled',
         ]);
 
         $regionalConsents = $request->input('regional_consents', []);
+
+        try {
+            $this->validateRegionalConsents($regionalConsents);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json(['error' => 'Validation failed', 'details' => $e->errors()], 422);
+        }
 
         $consentSetting = ConsentSetting::updateOrCreate(
             ['shop_domain' => $shop],
             $globalConsent
         );
-
 
         if (empty($regionalConsents)) {
             RegionalConsent::where('consent_setting_id', $consentSetting->id)->delete();
@@ -89,5 +96,19 @@ class GoogleConsentController extends Controller
             'global_consent' => $globalConsent,
             'regional_consents' => $regionalConsents,
         ]);
+    }
+
+    private function validateRegionalConsents(array $regionalConsents)
+    {
+        $validator = Validator::make(['regional_consents' => $regionalConsents], [
+            'regional_consents.*.region' => [
+                'required',
+                'regex:/^\s*([a-z]{2}(-[a-z0-9]{1,3})?\s*)(,\s*[a-z]{2}(-[a-z0-9]{1,3})?\s*)*$/i'
+            ]
+        ]);
+
+        if ($validator->fails()) {
+            throw new \Illuminate\Validation\ValidationException($validator);
+        }
     }
 }
