@@ -17,6 +17,7 @@ export function Application() {
     const response = await fetch('/api/get-script-tags')
     const data = await response.json()
     setScripts(data)
+    setIsLoading(false)
   }
 
   const handleScriptRemove = async (scriptId) => {
@@ -26,7 +27,7 @@ export function Application() {
       method: 'DELETE'
     })
       .then(loadScripts)
-      .then(setIsLoading(false))
+      .finally(() => setIsLoading(false))
   }
 
   const handleSubmit = async (values) => {
@@ -41,7 +42,7 @@ export function Application() {
       body: JSON.stringify({url: values.script})
     })
       .then(loadScripts)
-      .then(setIsLoading(false))
+      .finally(() => setIsLoading(false))
   }
 
   useEffect(() => {
@@ -75,7 +76,7 @@ export function Application() {
           <section>
             <CookieScriptInformation/>
           </section>
-          {!isLoading
+          {isLoading
             ? <div className="cookie-script__loading-cover ">
               <img className="rotating" src={Cookie} alt="Cookie"/>
             </div>

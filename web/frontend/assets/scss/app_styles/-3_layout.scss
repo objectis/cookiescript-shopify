@@ -61,6 +61,14 @@
     height: fit-content;
     width: 50%;
     margin-right: 24px;
+    
+    &__buttons-wrapper {
+      display: flex;
+    }
+    
+    &__buttons-wrapper button:first-of-type {
+      margin-right: 12px;
+    }
   }
   
   .google-consent-mode {

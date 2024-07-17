@@ -13,7 +13,7 @@ export default function ScriptForm({handleSubmit, isLoading}) {
   })
 
   const initialValues = {
-    script: '',
+    script: "",
   }
 
   return (
@@ -40,7 +40,10 @@ export default function ScriptForm({handleSubmit, isLoading}) {
                   <ErrorMessage name="script" component="span"/>
                 </div>
                 : null}
-              <button className="btn btn--primary" type="submit" disabled={!isLoading}>Add Script</button>
+              <div className="cookie-script__buttons-wrapper">
+                <button className="btn btn--primary" type="submit" disabled={isLoading}>Add Script</button>
+                {/*<button className="btn btn--primary" type="button" disabled={isLoading} onClick={saveScriptsSettings}>Save Scripts</button>*/}
+              </div>
             </Form>
           )}
         </Formik>

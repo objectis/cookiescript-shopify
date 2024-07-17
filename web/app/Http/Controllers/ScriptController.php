@@ -3,13 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Http\Controllers\Traits\SessionTrait;
+use App\Models\ScriptSrc;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Validator;
 use Shopify\Exception\CookieNotFoundException;
 use Shopify\Exception\MissingArgumentException;
-use Shopify\Rest\Admin2023_01\ScriptTag;
-use stdClass;
 
 class ScriptController extends Controller
 {
@@ -17,121 +17,95 @@ class ScriptController extends Controller
 
     public function addScript(Request $request)
     {
-        $url = $request->get('url');
+        $session = $this->loadCurrentSession($request);
 
-        if (is_null($url)) {
-            return response('Invalid URL', 400);
+        if (!$session) {
+            return response()->json(['error' => 'Session not found'], 401);
         }
 
-        $script_tag = new ScriptTag($this->loadCurrentSession($request),);
-        $script_tag->event = "onload";
-        $script_tag->src = $url;
-        $script_tag->save(
-            true
-        );
+        $shop = $session->getShop();
+        $url = $request->input('url');
 
-        return response("OK");
+        if (is_null($url)) {
+            return response()->json(['error' => 'Invalid URL'], 400);
+        }
+
+        $validator = Validator::make(['url' => $url], [
+            'url' => 'required|url'
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['error' => 'Validation failed', 'details' => $validator->errors()], 422);
+        }
+
+        $scriptSrc = ScriptSrc::create([
+            'shop_domain' => $shop,
+            'src' => $url
+        ]);
+
+        $this->publishScriptsToTheme($shop, $request);
+
+        return response()->json(['message' => 'Script added successfully', 'script' => $scriptSrc]);
     }
 
     public function getScripts(Request $request)
     {
-        $pattern = '/\.cookie-script\.com\/s\/[a-zA-Z0-9]{32}/';
-        $matches = [];
+        $session = $this->loadCurrentSession($request);
 
-        $scripts = ScriptTag::all(
-            $this->loadCurrentSession($request) ?? [],
-            [],
-            []
-        );
-
-        foreach ($scripts as $script) {
-            if (preg_match($pattern, $script->src)) {
-                $newScriptsObject = new stdClass();
-                $newScriptsObject->src = $script->src;
-                $newScriptsObject->id = $script->id;
-
-                array_push($matches, $newScriptsObject);
-            }
+        if (!$session) {
+            return response()->json(['error' => 'Session not found'], 401);
         }
 
-        return $matches;
+        $shop = $session->getShop();
+        $scripts = ScriptSrc::where('shop_domain', $shop)->get();
+
+        return response()->json($scripts);
     }
 
     public function removeScript(Request $request, $id)
     {
-        return ScriptTag::delete(
-            $this->loadCurrentSession($request),
-            $id,
-            [],
-            []
-        );
+        $session = $this->loadCurrentSession($request);
+
+        if (!$session) {
+            return response()->json(['error' => 'Session not found'], 401);
+        }
+
+        $shop = $session->getShop();
+        $scriptSrc = ScriptSrc::where('shop_domain', $shop)->where('id', $id)->first();
+
+        if (!$scriptSrc) {
+            return response()->json(['message' => 'Script not found'], 404);
+        }
+
+        $scriptSrc->delete();
+
+        $this->publishScriptsToTheme($shop, $request);
+
+        return response()->json(['message' => 'Script removed successfully']);
     }
 
-    public function addScriptTag(Request $request)
+    public function saveSrcScripts(Request $request)
     {
-        try {
-            $session = $this->loadCurrentSession($request);
+        $session = $this->loadCurrentSession($request);
 
-            if (!$session) {
-                return response()->json(['error' => 'Session not found'], 401);
-            }
-
-            $shop = $session->getShop();
-            $accessToken = $session->getAccessToken();
-            $settings = $this->getSettings($request);
-
-            if (!$settings->global_consent->google_consent_enabled) {
-                return $this->removeGoogleConsentModeScript($shop, $accessToken);
-            }
-
-            return $this->addGoogleConsentModeScript($shop, $accessToken, $request);
-        } catch (CookieNotFoundException | MissingArgumentException $e) {
-            Log::error('Session load error', ['exception' => $e]);
-            return response()->json(['error' => 'Failed to load session', 'details' => $e->getMessage()], 500);
+        if (!$session) {
+            return response()->json(['error' => 'Session not found'], 401);
         }
+
+        $shop = $session->getShop();
+
+        $this->generateScriptContent($request, $shop);
+
+        return response()->json(['message' => 'Scripts saved successfully']);
     }
 
-    private function getSettings(Request $request)
+    private function publishScriptsToTheme($shop, $request)
     {
-        $googleConsentController = new GoogleConsentController();
-        $getGoogleConsentModeSettings = $googleConsentController->getStoredSettings($request);
-        return json_decode($getGoogleConsentModeSettings->getContent());
-    }
+        ScriptSrc::where('shop_domain', $shop)->pluck('src')->toArray();
+        $this->saveSrcScripts($request);
+        $this->addScriptTag($request);
 
-    private function removeGoogleConsentModeScript($shop, $accessToken)
-    {
-        $themeId = $this->getMainThemeId($shop, $accessToken);
-
-        if (!$themeId) {
-            return response()->json(['error' => 'Main theme not found'], 404);
-        }
-
-        if (
-            $this->deleteScriptSnippet($shop, $accessToken, $themeId)
-            && $this->updateLayout($shop, $accessToken, $themeId)
-        ) {
-            return response()->json(["OK"]);
-        }
-
-        return response()->json(['error' => 'Failed to remove script'], 500);
-    }
-
-    private function addGoogleConsentModeScript($shop, $accessToken, Request $request)
-    {
-        $themeId = $this->getMainThemeId($shop, $accessToken);
-
-        if (!$themeId) {
-            return response()->json(['error' => 'Main theme not found'], 404);
-        }
-
-        $googleConsentModeScript = $this->createGoogleConsentModeScript($request);
-        $scriptTagContent = $this->generateScriptTagContent($googleConsentModeScript);
-
-        if ($this->createScriptSnippet($shop, $accessToken, $themeId, $scriptTagContent) && $this->updateLayout($shop, $accessToken, $themeId)) {
-            return response()->json(["OK"]);
-        }
-
-        return response()->json(['error' => 'Failed to add script'], 500);
+        return response()->json(['message' => 'OK']);
     }
 
     private function getMainThemeId($shop, $accessToken)
@@ -150,19 +124,52 @@ class ScriptController extends Controller
         return $mainTheme ? $mainTheme['id'] : null;
     }
 
-    private function deleteScriptSnippet($shop, $accessToken, $themeId)
+    public function addScriptTag(Request $request)
     {
-        $deleteResponse = Http::withHeaders(['X-Shopify-Access-Token' => $accessToken])
-            ->delete("https://{$shop}/admin/api/2023-04/themes/{$themeId}/assets.json", [
-                'asset' => ['key' => 'snippets/google_consent_mode_script.liquid']
-            ]);
+        try {
+            $session = $this->loadCurrentSession($request);
 
-        if (!$deleteResponse->successful()) {
-            Log::error('Failed to delete script snippet', ['response' => $deleteResponse->body()]);
-            return false;
+            if (!$session) {
+                return response()->json(['error' => 'Session not found'], 401);
+            }
+
+            $shop = $session->getShop();
+            $accessToken = $session->getAccessToken();
+
+            return $this->addGoogleConsentModeScript($shop, $accessToken, $request);
+        } catch (CookieNotFoundException | MissingArgumentException $e) {
+            Log::error('Session load error', ['exception' => $e]);
+            return response()->json(['error' => 'Failed to load session', 'details' => $e->getMessage()], 500);
+        }
+    }
+
+    private function getSettings(Request $request)
+    {
+        $googleConsentController = new GoogleConsentController();
+        $getGoogleConsentModeSettings = $googleConsentController->getStoredSettings($request);
+
+        return json_decode($getGoogleConsentModeSettings->getContent());
+    }
+
+    private function addGoogleConsentModeScript($shop, $accessToken, Request $request)
+    {
+        $themeId = $this->getMainThemeId($shop, $accessToken);
+
+        if (!$themeId) {
+            return response()->json(['error' => 'Main theme not found'], 404);
         }
 
-        return true;
+        $googleConsentModeScript = $this->createGoogleConsentModeScript($request);
+        $scriptTagContent = $this->generateScriptContent($request, $shop, $googleConsentModeScript);
+
+        if (
+            $this->createScriptSnippet($shop, $accessToken, $themeId, $scriptTagContent)
+            && $this->updateLayoutWithGoogleConsent($shop, $accessToken, $themeId)
+        ) {
+            return response()->json(["OK"]);
+        }
+
+        return response()->json(['error' => 'Failed to add script'], 500);
     }
 
     private function createScriptSnippet($shop, $accessToken, $themeId, $scriptTagContent)
@@ -183,7 +190,7 @@ class ScriptController extends Controller
         return true;
     }
 
-    private function updateLayout($shop, $accessToken, $themeId)
+    private function updateLayoutWithGoogleConsent($shop, $accessToken, $themeId)
     {
         $layoutResponse = Http::withHeaders(['X-Shopify-Access-Token' => $accessToken])
             ->get("https://{$shop}/admin/api/2023-04/themes/{$themeId}/assets.json", [
@@ -198,8 +205,8 @@ class ScriptController extends Controller
         $layoutContent = $layoutResponse->json('asset')['value'];
         $includeSnippet = '{% include "google_consent_mode_script" %}';
 
-        if (strpos($layoutContent, $includeSnippet) !== false) {
-            $layoutContent = str_replace($includeSnippet, '', $layoutContent);
+        if (strpos($layoutContent, $includeSnippet) === false) {
+            $layoutContent = str_replace('</head>', "{$includeSnippet}\n</head>", $layoutContent);
 
             $updateLayoutResponse = Http::withHeaders(['X-Shopify-Access-Token' => $accessToken])
                 ->put("https://{$shop}/admin/api/2023-04/themes/{$themeId}/assets.json", [
@@ -211,21 +218,7 @@ class ScriptController extends Controller
 
             if (!$updateLayoutResponse->successful()) {
                 Log::error('Failed to update layout file', ['response' => $updateLayoutResponse->body()]);
-                return false;
-            }
-        } else {
-            $layoutContent = str_replace('</head>', "{% include \"google_consent_mode_script\" %}\n</head>", $layoutContent);
 
-            $updateLayoutResponse = Http::withHeaders(['X-Shopify-Access-Token' => $accessToken])
-                ->put("https://{$shop}/admin/api/2023-04/themes/{$themeId}/assets.json", [
-                    'asset' => [
-                        'key' => 'layout/theme.liquid',
-                        'value' => $layoutContent,
-                    ]
-                ]);
-
-            if (!$updateLayoutResponse->successful()) {
-                Log::error('Failed to update layout file', ['response' => $updateLayoutResponse->body()]);
                 return false;
             }
         }
@@ -233,9 +226,29 @@ class ScriptController extends Controller
         return true;
     }
 
-    private function generateScriptTagContent($googleConsentModeScript)
+    private function getScriptSources($shop)
     {
-        return "<script data-cs-plugin=\"shopify\">\n{$googleConsentModeScript}\n</script>";
+        return ScriptSrc::where('shop_domain', $shop)->pluck('src')->toArray();
+    }
+
+
+    private function generateScriptContent($request, $shop, $googleConsentModeScript = null)
+    {
+        $scripts = $this->getScriptSources($shop);
+        $scriptTags = "";
+        $settings = $this->getSettings($request);
+
+        if (count($scripts) > 0) {
+            foreach ($scripts as $src) {
+                $scriptTags .= "<script data-cs-plugin='shopify' src=\"{$src}\"></script>\n";
+            }
+        }
+
+        if ($settings->global_consent->google_consent_enabled) {
+            $scriptTags .= "<script>\n{$googleConsentModeScript}\n</script>";
+        }
+
+        return $scriptTags;
     }
 
     public function createGoogleConsentModeScript(Request $request)
@@ -297,5 +310,4 @@ class ScriptController extends Controller
 
         return $googleConsentModeScript;
     }
-
 }
