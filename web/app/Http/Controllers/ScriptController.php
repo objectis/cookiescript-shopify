@@ -238,14 +238,14 @@ class ScriptController extends Controller
         $scriptTags = "";
         $settings = $this->getSettings($request);
 
+        if ($settings->global_consent->google_consent_enabled) {
+            $scriptTags .= "<script>\n{$googleConsentModeScript}\n</script>";
+        }
+
         if (count($scripts) > 0) {
             foreach ($scripts as $src) {
                 $scriptTags .= "<script data-cs-plugin='shopify' src=\"{$src}\"></script>\n";
             }
-        }
-
-        if ($settings->global_consent->google_consent_enabled) {
-            $scriptTags .= "<script>\n{$googleConsentModeScript}\n</script>";
         }
 
         return $scriptTags;
