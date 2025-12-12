@@ -26,7 +26,7 @@
     "micromatch": "^4.0.8",
     "js-yaml": "^3.14.1",
     "braces": "^3.0.3",
-    "esbuild": "^0.25.12",
+    "esbuild": "^0.27.1",
     "form-data": "^4.0.4",
     "express": "^4.21.2"
   },
@@ -41,7 +41,7 @@
     "micromatch": "^4.0.8",
     "js-yaml": "^3.14.1",
     "braces": "^3.0.3",
-    "esbuild": "^0.25.12",
+    "esbuild": "^0.27.1",
     "form-data": "^4.0.4",
     "express": "^4.21.2"
   },
