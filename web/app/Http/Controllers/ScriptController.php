@@ -273,22 +273,7 @@ class ScriptController extends Controller
         window.dataLayer = window.dataLayer || [];
         window.gtag = window.gtag || function () {
             dataLayer.push(arguments);
-        };
-
-        gtag('set', 'developer_id.dMmY1Mm', true);
-        gtag('set', 'ads_data_redaction', true);
-
-        gtag('consent', 'default', {
-            ad_storage: '{$globalSettings['ad_storage']}',
-            analytics_storage: '{$globalSettings['analytics_storage']}',
-            ad_user_data: '{$globalSettings['ad_user_data']}',
-            ad_personalization: '{$globalSettings['ad_personalization']}',
-            functionality_storage: '{$globalSettings['functionality_storage']}',
-            personalization_storage: '{$globalSettings['personalization_storage']}',
-            security_storage: '{$globalSettings['security_storage']}',
-            wait_for_update: {$globalSettings['wait_for_update']}
-        });
-        ";
+        };";
 
         foreach ($regionalSettings as $regional) {
             $encodedRegionCode = json_encode(array_map('trim', explode(',', $regional['region'])));
@@ -304,9 +289,24 @@ class ScriptController extends Controller
             security_storage: '{$regional['security_storage']}',
             wait_for_update: {$regional['wait_for_update']},
             region: JSON.parse('{$encodedRegionCode}'.replace(/&quot;/g, '\"'))
-        });
-        ";
+        });";
         }
+
+        $googleConsentModeScript .= "
+        gtag('consent', 'default', {
+            ad_storage: '{$globalSettings['ad_storage']}',
+            analytics_storage: '{$globalSettings['analytics_storage']}',
+            ad_user_data: '{$globalSettings['ad_user_data']}',
+            ad_personalization: '{$globalSettings['ad_personalization']}',
+            functionality_storage: '{$globalSettings['functionality_storage']}',
+            personalization_storage: '{$globalSettings['personalization_storage']}',
+            security_storage: '{$globalSettings['security_storage']}',
+            wait_for_update: {$globalSettings['wait_for_update']}
+        });
+
+        gtag('set', 'developer_id.dMmY1Mm', true);
+        gtag('set', 'ads_data_redaction', true);
+        ";
 
         return $googleConsentModeScript;
     }

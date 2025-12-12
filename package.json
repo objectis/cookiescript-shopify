@@ -12,8 +12,38 @@
     "info": "shopify app info"
   },
   "dependencies": {
-    "@shopify/app": "^3.51.1",
+    "@shopify/app": "^3.10.1",
     "@shopify/cli": "^3.51.1"
+  },
+  "overrides": {
+    "ws": "^8.17.1",
+    "body-parser": "^1.20.3",
+    "send": "^0.19.0",
+    "serve-static": "^1.16.0",
+    "cookie": "^0.7.0",
+    "path-to-regexp": "^0.1.12",
+    "cross-spawn": "^7.0.6",
+    "micromatch": "^4.0.8",
+    "js-yaml": "^3.14.1",
+    "braces": "^3.0.3",
+    "esbuild": "^0.25.12",
+    "form-data": "^4.0.4",
+    "express": "^4.21.2"
+  },
+  "resolutions": {
+    "ws": "^8.17.1",
+    "body-parser": "^1.20.3",
+    "send": "^0.19.0",
+    "serve-static": "^1.16.0",
+    "cookie": "^0.7.0",
+    "path-to-regexp": "^0.1.12",
+    "cross-spawn": "^7.0.6",
+    "micromatch": "^4.0.8",
+    "js-yaml": "^3.14.1",
+    "braces": "^3.0.3",
+    "esbuild": "^0.25.12",
+    "form-data": "^4.0.4",
+    "express": "^4.21.2"
   },
   "author": "Arturas"
 }
