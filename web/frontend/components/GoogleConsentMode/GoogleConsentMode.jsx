@@ -1,7 +1,7 @@
-import React, {useState, useEffect} from 'react';
-import {Formik, Form, ErrorMessage, Field} from 'formik'
+import React, { useState, useEffect } from 'react';
+import { Formik, Form, ErrorMessage, Field } from 'formik'
 import * as Yup from 'yup';
-import {useAuthenticatedFetch} from '../../hooks';
+import { useAuthenticatedFetch } from '../../hooks';
 import GlobalConsentForm from './GlobalConsentForm';
 import RegionalConsentForm from './RegionalConsentForm';
 import Cookie from "../../assets/images/icons/cookie.svg";
@@ -93,7 +93,7 @@ const GoogleConsentMode = () => {
     return scriptResponse.json();
   };
 
-  const handleSubmit = async (values, {setSubmitting}) => {
+  const handleSubmit = async (values, { setSubmitting }) => {
     try {
       setIsLoading(true)
 
@@ -108,17 +108,13 @@ const GoogleConsentMode = () => {
       const data = await response.json();
 
       if (response.ok) {
-        console.log('Settings saved successfully');
-
         const scriptData = await addScriptTag();
 
         if (addScriptTag) {
           setIsLoading(false)
           await addScriptTag()
-          console.log('Script tag updated successfully:', scriptData);
         } else {
           setIsLoading(false)
-          console.error('Error adding script tag:', scriptData);
         }
       } else {
         console.error('Error saving settings:', data);
@@ -137,19 +133,19 @@ const GoogleConsentMode = () => {
       enableReinitialize
       onSubmit={handleSubmit}
     >
-      {({isSubmitting, values}) => (
+      {({ isSubmitting, values }) => (
         <Form>
           {isLoading && values.google_consent_enabled
             ? <div className="cookie-script__loading-cover ">
-              <img className="rotating" src={Cookie} alt="Cookie"/>
+              <img className="rotating" src={Cookie} alt="Cookie" />
             </div>
             : null
           }
           <div className="google-consent-mode__controls">
             <div>
-              <Field type="checkbox" name="google_consent_enabled"/>
+              <Field type="checkbox" name="google_consent_enabled" />
               <label htmlFor="google_consent_enabled"> Enable Google Consent Mode</label>
-              <ErrorMessage className="error-message" name="google_consent_enabled" component="div"/>
+              <ErrorMessage className="error-message" name="google_consent_enabled" component="div" />
             </div>
             <button className={`btn btn--${!isLoading ? "primary" : "disabled"}`} type="submit" disabled={isSubmitting}>
               Save Settings
@@ -157,8 +153,8 @@ const GoogleConsentMode = () => {
           </div>
           {values.google_consent_enabled && (
             <>
-              <GlobalConsentForm values={values}/>
-              <RegionalConsentForm values={values}/>
+              <GlobalConsentForm values={values} />
+              <RegionalConsentForm values={values} />
             </>
           )}
         </Form>
