@@ -105,7 +105,7 @@ const GoogleConsentMode = () => {
         body: JSON.stringify(values)
       });
 
-      const data = await response.json();
+      const data = await response.json(); 
 
       if (response.ok) {
         const scriptData = await addScriptTag();

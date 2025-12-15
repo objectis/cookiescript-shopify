@@ -42,7 +42,7 @@ class AppServiceProvider extends ServiceProvider
             env('SCOPES_READ', 'not_defined'),
             $host,
             new DbSessionStorage(),
-            '2023-01',
+            '2023-04',
             true,
             false,
             null,

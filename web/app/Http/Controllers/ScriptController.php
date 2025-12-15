@@ -84,28 +84,9 @@ class ScriptController extends Controller
         return response()->json(['message' => 'Script removed successfully']);
     }
 
-    public function saveSrcScripts(Request $request)
-    {
-        $session = $this->loadCurrentSession($request);
-
-        if (!$session) {
-            return response()->json(['error' => 'Session not found'], 401);
-        }
-
-        $shop = $session->getShop();
-
-        $this->generateScriptContent($request, $shop);
-
-        return response()->json(['message' => 'Scripts saved successfully']);
-    }
-
     private function publishScriptsToTheme($shop, $request)
     {
-        ScriptSrc::where('shop_domain', $shop)->pluck('src')->toArray();
-        $this->saveSrcScripts($request);
         $this->addScriptTag($request);
-
-        return response()->json(['message' => 'OK']);
     }
 
     private function getMainThemeId($shop, $accessToken)
@@ -136,7 +117,10 @@ class ScriptController extends Controller
             $shop = $session->getShop();
             $accessToken = $session->getAccessToken();
 
-            return $this->addGoogleConsentModeScript($shop, $accessToken, $request);
+            $googleConsentModeScript = $this->createGoogleConsentModeScript($request);
+            $scriptContent = $this->generateScriptContent($request, $shop, $googleConsentModeScript);
+
+            return $this->addGoogleConsentModeScript($shop, $accessToken, $request, $scriptContent);
         } catch (CookieNotFoundException | MissingArgumentException $e) {
             Log::error('Session load error', ['exception' => $e]);
             return response()->json(['error' => 'Failed to load session', 'details' => $e->getMessage()], 500);
@@ -151,7 +135,7 @@ class ScriptController extends Controller
         return json_decode($getGoogleConsentModeSettings->getContent());
     }
 
-    private function addGoogleConsentModeScript($shop, $accessToken, Request $request)
+    private function addGoogleConsentModeScript($shop, $accessToken, Request $request, $scriptContent)
     {
         $themeId = $this->getMainThemeId($shop, $accessToken);
 
@@ -159,11 +143,8 @@ class ScriptController extends Controller
             return response()->json(['error' => 'Main theme not found'], 404);
         }
 
-        $googleConsentModeScript = $this->createGoogleConsentModeScript($request);
-        $scriptTagContent = $this->generateScriptContent($request, $shop, $googleConsentModeScript);
-
         if (
-            $this->createScriptSnippet($shop, $accessToken, $themeId, $scriptTagContent)
+            $this->createScriptSnippet($shop, $accessToken, $themeId, $scriptContent)
             && $this->updateLayoutWithGoogleConsent($shop, $accessToken, $themeId)
         ) {
             return response()->json(["OK"]);
@@ -203,7 +184,7 @@ class ScriptController extends Controller
         }
 
         $layoutContent = $layoutResponse->json('asset')['value'];
-        $includeSnippet = '{% include "google_consent_mode_script" %}';
+        $includeSnippet = "{% render 'google_consent_mode_script' %}";
 
         if (strpos($layoutContent, $includeSnippet) === false) {
             $layoutContent = str_replace('</head>', "{$includeSnippet}\n</head>", $layoutContent);
@@ -228,9 +209,11 @@ class ScriptController extends Controller
 
     private function getScriptSources($shop)
     {
-        return ScriptSrc::where('shop_domain', $shop)->pluck('src')->toArray();
+        return ScriptSrc::where('shop_domain', $shop)
+            ->orderBy('id', 'desc')
+            ->pluck('src')
+            ->toArray();
     }
-
 
     private function generateScriptContent($request, $shop, $googleConsentModeScript = null)
     {
@@ -238,7 +221,7 @@ class ScriptController extends Controller
         $scriptTags = "";
         $settings = $this->getSettings($request);
 
-        if ($settings->global_consent->google_consent_enabled) {
+        if (!empty($settings?->global_consent?->google_consent_enabled)) {
             $scriptTags .= "<script>\n{$googleConsentModeScript}\n</script>";
         }
 
