@@ -58,8 +58,7 @@
         ],
         "react": "npm run watch",
         "lint": "./vendor/bin/phpcs --standard=PSR12 app routes",
-        "build": "composer build-frontend-links",
-        "build-frontend-links": "ln -sf ../frontend/dist/assets public/assets && ln -sf ../frontend/dist/index.html public/index.html"
+        "build": "cd frontend && npm run build"
     },
     "extra": {
         "laravel": {

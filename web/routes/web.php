@@ -33,17 +33,39 @@ use Shopify\Webhooks\Topics;
 |
 */
 
+// Serve Vite build assets directly from frontend/dist/assets
+Route::get('/assets/{path}', function ($path) {
+    $filePath = base_path("frontend/dist/assets/{$path}");
+
+    if (!file_exists($filePath)) {
+        abort(404);
+    }
+
+    $mimeTypes = [
+        'js' => 'application/javascript',
+        'css' => 'text/css',
+        'woff' => 'font/woff',
+        'woff2' => 'font/woff2',
+        'ttf' => 'font/ttf',
+        'svg' => 'image/svg+xml',
+        'png' => 'image/png',
+        'jpg' => 'image/jpeg',
+        'jpeg' => 'image/jpeg',
+        'gif' => 'image/gif',
+    ];
+
+    $extension = pathinfo($path, PATHINFO_EXTENSION);
+    $mimeType = $mimeTypes[$extension] ?? 'application/octet-stream';
+
+    return response()->file($filePath, ['Content-Type' => $mimeType]);
+})->where('path', '.*');
+
 Route::fallback(function (Request $request) {
     if (Context::$IS_EMBEDDED_APP &&  $request->query("embedded", false) === "1") {
-        if (env('APP_ENV') === 'production') {
-            return file_get_contents(public_path('index.html'));
-        } else {
-            return file_get_contents(base_path('frontend/index.html'));
-        }
+        return file_get_contents(base_path('frontend/index.html'));
     } else {
         return redirect(Utils::getEmbeddedAppUrl($request->query("host", null)) . "/" . $request->path());
     }
-
 })->middleware('shopify.installed');
 
 Route::get('/api/auth', function (Request $request) {
