@@ -20,7 +20,8 @@ export default function Routes({ pages }) {
     <Route key={path} path={path} element={<Component />} />
   ));
 
-  const NotFound = routes.find(({ path }) => path === "/notFound").component;
+  const notFoundRoute = routes.find(({ path }) => path === "/notFound");
+  const NotFound = notFoundRoute ? notFoundRoute.component : () => null;
 
   return (
     <ReactRouterRoutes>
@@ -34,7 +35,8 @@ function useRoutes(pages) {
   const routes = Object.keys(pages)
     .map((key) => {
       let path = key
-        .replace("./pages", "")
+        .replace(/^\.\//, "")
+        .replace(/^pages/, "")
         .replace(/\.(t|j)sx?$/, "")
         /**
          * Replace /index with /
@@ -54,13 +56,22 @@ function useRoutes(pages) {
         path = path.substring(0, path.length - 1);
       }
 
-      if (!pages[key].default) {
+      if (!path.startsWith("/")) {
+        path = "/" + path;
+      }
+
+      let component = pages[key].default;
+      if (!component && typeof pages[key] === "function") {
+        component = pages[key];
+      }
+
+      if (!component) {
         console.warn(`${key} doesn't export a default React component`);
       }
 
       return {
         path,
-        component: pages[key].default,
+        component,
       };
     })
     .filter((route) => route.component);
