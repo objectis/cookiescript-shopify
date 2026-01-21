@@ -1,3 +1,4 @@
+import React, { Suspense, lazy } from "react";
 import { Routes as ReactRouterRoutes, Route } from "react-router-dom";
 
 /**
@@ -10,7 +11,7 @@ import { Routes as ReactRouterRoutes, Route } from "react-router-dom";
  * * `/pages/blog/[id].jsx` matches `/blog/123`
  * * `/pages/[...catchAll].jsx` matches any URL not explicitly matched
  *
- * @param {object} pages value of import.meta.globEager(). See https://vitejs.dev/guide/features.html#glob-import
+ * @param {object} pages value of import.meta.glob(). See https://vitejs.dev/guide/features.html#glob-import
  *
  * @return {Routes} `<Routes/>` from React Router, with a `<Route/>` for each file in `pages`
  */
@@ -24,10 +25,12 @@ export default function Routes({ pages }) {
   const NotFound = notFoundRoute ? notFoundRoute.component : () => null;
 
   return (
-    <ReactRouterRoutes>
-      {routeComponents}
-      <Route path="*" element={<NotFound />} />
-    </ReactRouterRoutes>
+    <Suspense fallback={null}>
+      <ReactRouterRoutes>
+        {routeComponents}
+        <Route path="*" element={<NotFound />} />
+      </ReactRouterRoutes>
+    </Suspense>
   );
 }
 
@@ -62,10 +65,20 @@ function useRoutes(pages) {
 
       let component = pages[key].default || pages[key];
 
-      // If the component is a function that looks like a lazy loader (returns a promise)
-      // we should treat it as a lazy component.
-      // However, Shopify templates usually expect eager loading.
-      // If we see a promise being returned, that's what causes Error #31.
+      // If the component is a function but doesn't look like a React component
+      // (e.g., if it's a dynamic import loader)
+      // and it's from a glob that might not be eager.
+      if (typeof component === "function" && !component.prototype?.isReactComponent && component.name !== component.name.toUpperCase()) {
+        // Wrap in lazy just in case it's a loader
+        const loader = component;
+        component = lazy(async () => {
+          const result = loader();
+          if (result instanceof Promise) {
+            return result;
+          }
+          return { default: result };
+        });
+      }
 
       if (!component) {
         console.warn(`${key} doesn't export a default React component`);
@@ -76,7 +89,7 @@ function useRoutes(pages) {
         component,
       };
     })
-    .filter((route) => typeof route.component === "function" || typeof route.component === "object" && route.component?.$$typeof);
+    .filter((route) => route.component);
 
   return routes;
 }
