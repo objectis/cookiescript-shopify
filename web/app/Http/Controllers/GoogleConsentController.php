@@ -86,7 +86,20 @@ class GoogleConsentController extends Controller
         $consentSetting = ConsentSetting::where('shop_domain', $shop)->first();
 
         if (!$consentSetting) {
-            return response()->json(['error' => 'Settings not found'], 404);
+            return response()->json([
+                'global_consent' => [
+                    'ad_storage' => 'denied',
+                    'analytics_storage' => 'denied',
+                    'ad_user_data' => 'denied',
+                    'ad_personalization' => 'denied',
+                    'functionality_storage' => 'denied',
+                    'personalization_storage' => 'denied',
+                    'security_storage' => 'denied',
+                    'wait_for_update' => '500',
+                    'google_consent_enabled' => false,
+                ],
+                'regional_consents' => [],
+            ]);
         }
 
         $globalConsent = $consentSetting->toArray();
