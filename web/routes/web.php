@@ -61,7 +61,10 @@ Route::get('/assets/{path}', function ($path) {
 })->where('path', '.*');
 
 Route::fallback(function (Request $request) {
-    if (Context::$IS_EMBEDDED_APP &&  $request->query("embedded", false) === "1") {
+    if (Context::$IS_EMBEDDED_APP &&  $request->query("embedded", null) === "1") {
+        if (file_exists(base_path('frontend/dist/index.html'))) {
+            return file_get_contents(base_path('frontend/dist/index.html'));
+        }
         return file_get_contents(base_path('frontend/index.html'));
     } else {
         return redirect(Utils::getEmbeddedAppUrl($request->query("host", null)) . "/" . $request->path());
@@ -69,7 +72,7 @@ Route::fallback(function (Request $request) {
 })->middleware('shopify.installed');
 
 Route::get('/api/auth', function (Request $request) {
-    $shop = Utils::sanitizeShopDomain($request->query('shop'));
+    $shop = Utils::sanitizeShopDomain((string)$request->query('shop'));
 
     // Delete any previously created OAuth sessions that were not completed (don't have an access token)
     Session::where('shop', $shop)->where('access_token', null)->delete();
@@ -85,7 +88,7 @@ Route::get('/api/auth/callback', function (Request $request) {
     );
 
     $host = $request->query('host');
-    $shop = Utils::sanitizeShopDomain($request->query('shop'));
+    $shop = Utils::sanitizeShopDomain((string)$request->query('shop'));
 
     $response = Registry::register('/api/webhooks', Topics::APP_UNINSTALLED, $shop, $session->getAccessToken());
     if ($response->isSuccess()) {
