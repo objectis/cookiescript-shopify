@@ -60,10 +60,12 @@ function useRoutes(pages) {
         path = "/" + path;
       }
 
-      let component = pages[key].default;
-      if (!component && typeof pages[key] === "function") {
-        component = pages[key];
-      }
+      let component = pages[key].default || pages[key];
+
+      // If the component is a function that looks like a lazy loader (returns a promise)
+      // we should treat it as a lazy component.
+      // However, Shopify templates usually expect eager loading.
+      // If we see a promise being returned, that's what causes Error #31.
 
       if (!component) {
         console.warn(`${key} doesn't export a default React component`);
@@ -74,7 +76,7 @@ function useRoutes(pages) {
         component,
       };
     })
-    .filter((route) => route.component);
+    .filter((route) => typeof route.component === "function" || typeof route.component === "object" && route.component?.$$typeof);
 
   return routes;
 }
