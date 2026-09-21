@@ -1,9 +1,10 @@
-import React, {useEffect, useState} from "react"
+import React, { useEffect, useState } from "react"
 import AddedScripts from "../AddedScripts"
 import ScriptForm from "../ScriptForm"
 import CookieScriptInformation from "../CookieScriptInformation"
+import DomainBannerMap from "../DomainBannerMap"
 import Cookie from "../../assets/images/icons/cookie.svg"
-import {useAuthenticatedFetch} from "../../hooks"
+import { useAuthenticatedFetch } from "../../hooks"
 import GoogleConsentMode from "../GoogleConsentMode/index.js"
 
 export function Application() {
@@ -39,7 +40,7 @@ export function Application() {
         'Accept': 'application/json',
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({url: values.script})
+      body: JSON.stringify({ url: values.script })
     })
       .then(loadScripts)
       .finally(() => setIsLoading(false))
@@ -57,7 +58,7 @@ export function Application() {
           <section>
             {scripts.length !== 0
               ? <header className="cookie-script__header">
-                <div>Already added scripts</div>
+                <h2>Already added scripts</h2>
               </header>
               : null
             }
@@ -74,17 +75,20 @@ export function Application() {
             />
           </section>
           <section>
-            <CookieScriptInformation/>
+            <DomainBannerMap />
+          </section>
+          <section>
+            <CookieScriptInformation />
           </section>
           {isLoading
             ? <div className="cookie-script__loading-cover ">
-              <img className="rotating" src={Cookie} alt="Cookie"/>
+              <img className="rotating" src={Cookie} alt="Cookie" />
             </div>
             : null
           }
         </div>
         <div className="google-consent-mode form-wrapper">
-          <GoogleConsentMode/>
+          <GoogleConsentMode />
         </div>
       </div>
     </>

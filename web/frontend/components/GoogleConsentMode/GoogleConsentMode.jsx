@@ -105,7 +105,7 @@ const GoogleConsentMode = () => {
         body: JSON.stringify(values)
       });
 
-      const data = await response.json(); 
+      const data = await response.json();
 
       if (response.ok) {
         const scriptData = await addScriptTag();
@@ -141,6 +141,7 @@ const GoogleConsentMode = () => {
             </div>
             : null
           }
+          <h2>Google Consent Mode</h2>
           <div className="google-consent-mode__controls">
             <div>
               <Field type="checkbox" name="google_consent_enabled" />

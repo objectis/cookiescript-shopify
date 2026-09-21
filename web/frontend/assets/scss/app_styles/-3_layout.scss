@@ -1,10 +1,13 @@
-@-webkit-keyframes rotating /* Safari and Chrome */
-{
+@-webkit-keyframes rotating
+
+/* Safari and Chrome */
+  {
   from {
     -webkit-transform: rotate(0deg);
     -o-transform: rotate(0deg);
     transform: rotate(0deg);
   }
+
   to {
     -webkit-transform: rotate(360deg);
     -o-transform: rotate(360deg);
@@ -20,6 +23,7 @@
     -o-transform: rotate(0deg);
     transform: rotate(0deg);
   }
+
   to {
     -ms-transform: rotate(360deg);
     -moz-transform: rotate(360deg);
@@ -56,27 +60,25 @@
 .cookie-script-settings {
   display: flex;
   width: 100%;
-  
+
   .cookie-script {
     height: fit-content;
     width: 50%;
     margin-right: 24px;
-    
+
     &__buttons-wrapper {
       display: flex;
-    }
-    
-    &__buttons-wrapper button:first-of-type {
-      margin-right: 12px;
+      justify-content: end;
     }
   }
-  
+
   .google-consent-mode {
     width: 50%;
   }
 }
 
-.form-wrapper, .cookie-script {
+.form-wrapper,
+.cookie-script {
   background-color: $white;
   box-shadow: 2px 2px 7px 1px rgba(2, 2, 2, .28);
   border-color: $white;
@@ -84,15 +86,21 @@
   padding: 24px;
   font-size: 16px;
   position: relative;
-  
+
   a {
     color: $blue;
   }
-  
+
   &__header {
     margin: 0 0 24px;
+
+    h2 {
+      font-weight: 700;
+      font-size: 18px;
+      margin-bottom: 18px;
+    }
   }
-  
+
   &__added-script {
     border: 1px solid $gray;
     border-radius: 10px;
@@ -105,10 +113,10 @@
     display: flex;
     word-break: break-all;
   }
-  
+
   &__added-scripts {
     display: flex;
-    
+
     &--remove-script {
       width: 10%;
       display: flex;
@@ -117,19 +125,20 @@
       margin-bottom: 12px;
     }
   }
-  
+
   &__information {
     margin: 24px 0;
-    
+
     h2 {
       font-weight: 500;
     }
-    
-    li, p {
+
+    li,
+    p {
       margin-bottom: 12px;
     }
   }
-  
+
   &__loading-cover {
     position: absolute;
     top: 0;
@@ -141,9 +150,13 @@
     justify-content: center;
     z-index: 1111;
     backdrop-filter: blur(2px);
-    
+
     img {
       width: 130px;
     }
   }
+}
+
+hr {
+  margin: 16px 0;
 }

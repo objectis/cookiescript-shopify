@@ -95,7 +95,7 @@ class GoogleConsentController extends Controller
                     'functionality_storage' => 'denied',
                     'personalization_storage' => 'denied',
                     'security_storage' => 'denied',
-                    'wait_for_update' => '500',
+                    'wait_for_update' => 500,
                     'google_consent_enabled' => false,
                 ],
                 'regional_consents' => [],

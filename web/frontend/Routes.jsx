@@ -1,4 +1,3 @@
-import React, { Suspense, lazy } from "react";
 import { Routes as ReactRouterRoutes, Route } from "react-router-dom";
 
 /**
@@ -21,17 +20,20 @@ export default function Routes({ pages }) {
     <Route key={path} path={path} element={<Component />} />
   ));
 
-  const notFoundRoute = routes.find(({ path }) => path === "/notFound");
-  const NotFound = notFoundRoute ? notFoundRoute.component : () => null;
+  const NotFound = routes.find(
+    ({ path }) => path.toLowerCase() === "/notfound"
+  )?.component || DefaultNotFound;
 
   return (
-    <Suspense fallback={null}>
-      <ReactRouterRoutes>
-        {routeComponents}
-        <Route path="*" element={<NotFound />} />
-      </ReactRouterRoutes>
-    </Suspense>
+    <ReactRouterRoutes>
+      {routeComponents}
+      <Route path="*" element={<NotFound />} />
+    </ReactRouterRoutes>
   );
+}
+
+function DefaultNotFound() {
+  return <p>There is no page at this address.</p>;
 }
 
 function useRoutes(pages) {
@@ -63,22 +65,10 @@ function useRoutes(pages) {
         path = "/" + path;
       }
 
-      let component = pages[key].default || pages[key];
-
-      // If the component is a function but doesn't look like a React component
-      // (e.g., if it's a dynamic import loader)
-      // and it's from a glob that might not be eager.
-      if (typeof component === "function" && !component.prototype?.isReactComponent && component.name !== component.name.toUpperCase()) {
-        // Wrap in lazy just in case it's a loader
-        const loader = component;
-        component = lazy(async () => {
-          const result = loader();
-          if (result instanceof Promise) {
-            return result;
-          }
-          return { default: result };
-        });
-      }
+      // `App.jsx` uses an eager module glob, so the default export is already
+      // the React component. Wrapping it in `lazy()` calls the component as a
+      // normal function and causes React to receive an element, not a component.
+      const component = pages[key].default || pages[key];
 
       if (!component) {
         console.warn(`${key} doesn't export a default React component`);

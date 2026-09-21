@@ -31,5 +31,9 @@
     "prettier": "^2.6.0",
     "sass": "^1.59.2",
     "vi-fetch": "^0.6.1"
+  },
+  "resolutions": {
+    "esbuild": "^0.25.0",
+    "@tootallnate/once": "^3.0.1"
   }
 }

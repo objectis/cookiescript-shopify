@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Controllers\Traits\SessionTrait;
+use App\Models\DomainBannerSetting;
 use App\Models\ScriptSrc;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
@@ -121,9 +122,9 @@ class ScriptController extends Controller
             $scriptContent = $this->generateScriptContent($request, $shop, $googleConsentModeScript);
 
             return $this->addGoogleConsentModeScript($shop, $accessToken, $request, $scriptContent);
-        } catch (CookieNotFoundException | MissingArgumentException $e) {
-            Log::error('Session load error', ['exception' => $e]);
-            return response()->json(['error' => 'Failed to load session', 'details' => $e->getMessage()], 500);
+        } catch (CookieNotFoundException | MissingArgumentException $exception) {
+            Log::error('Session load error', ['exception' => $exception]);
+            return response()->json(['error' => 'Failed to load session', 'details' => $exception->getMessage()], 500);
         }
     }
 
@@ -217,7 +218,6 @@ class ScriptController extends Controller
 
     private function generateScriptContent($request, $shop, $googleConsentModeScript = null)
     {
-        $scripts = $this->getScriptSources($shop);
         $scriptTags = "";
         $settings = $this->getSettings($request);
 
@@ -225,13 +225,130 @@ class ScriptController extends Controller
             $scriptTags .= "<script>\n{$googleConsentModeScript}\n</script>";
         }
 
-        if (count($scripts) > 0) {
-            foreach ($scripts as $src) {
-                $scriptTags .= "<script data-cs-plugin='shopify' src=\"{$src}\"></script>\n";
+        $domainSetting = DomainBannerSetting::where('shop_domain', $shop)->first();
+
+        if ($domainSetting && $domainSetting->multi_domain_enabled && !empty($domainSetting->domain_map)) {
+            $fallbackScripts = $this->getScriptSources($shop);
+            $fallbackTags = '';
+
+            foreach ($fallbackScripts as $fallbackScriptUrl) {
+                $fallbackTags .= "<script data-cs-plugin='shopify' src=\"{$fallbackScriptUrl}\"></script>\n";
+            }
+
+            $scriptTags .= "\n{%- assign _cs_host = request.host | downcase -%}\n";
+            $scriptTags .= "{% case _cs_host %}\n";
+
+            foreach ($domainSetting->domain_map as $domainName => $bannerScriptUrl) {
+                $domainName = strtolower($domainName);
+                $escapedScriptUrl  = htmlspecialchars($bannerScriptUrl, ENT_QUOTES, 'UTF-8');
+                $scriptTags .= "{% when \"{$domainName}\" %}<script data-cs-plugin='shopify' src=\"{$escapedScriptUrl}\"></script>\n";
+            }
+
+            $scriptTags .= "{% else %}{$fallbackTags}";
+            $scriptTags .= "{% endcase %}\n";
+        } else {
+            $scripts = $this->getScriptSources($shop);
+            if (count($scripts) > 0) {
+                foreach ($scripts as $scriptUrl) {
+                    $scriptTags .= "<script data-cs-plugin='shopify' src=\"{$scriptUrl}\"></script>\n";
+                }
             }
         }
 
         return $scriptTags;
+    }
+
+    public function getDomainBannerMap(Request $request)
+    {
+        $session = $this->loadCurrentSession($request);
+
+        if (!$session) {
+            return response()->json(['error' => 'Session not found'], 401);
+        }
+
+        $shop                 = $session->getShop();
+        $domainBannerSetting  = DomainBannerSetting::where('shop_domain', $shop)->first();
+
+        return response()->json([
+            'multi_domain_enabled' => $domainBannerSetting?->multi_domain_enabled ?? false,
+            'domain_map'           => $domainBannerSetting?->domain_map ?? [],
+        ]);
+    }
+
+    public function saveDomainBannerMap(Request $request)
+    {
+        $session = $this->loadCurrentSession($request);
+
+        if (!$session) {
+            return response()->json(['error' => 'Session not found'], 401);
+        }
+
+        $shop = $session->getShop();
+        $multiDomainEnabled = (bool) $request->input('multi_domain_enabled', false);
+        $domainMapInput = $request->input('domain_map', []);
+
+        $normalisedDomainMap = [];
+        $validationErrors = [];
+
+        $scriptUrlPattern = '/^https:\/\/(geo|cdn)\.cookie-script\.com\/(s|staging)\/[a-zA-Z0-9]{32}\.js$/';
+
+        foreach ($domainMapInput as $domainMapEntry) {
+            $rawDomain = $domainMapEntry['domain'] ?? '';
+            $rawUrl = $domainMapEntry['url'] ?? '';
+
+            $domainHost = strtolower($rawDomain);
+
+            if (str_contains($domainHost, '://')) {
+                $parsedUrl = parse_url($domainHost);
+                $domainHost = $parsedUrl['host'] ?? '';
+            }
+
+            $domainHost = rtrim($domainHost, '/');
+
+            if ($domainHost === '') {
+                $validationErrors[] = "Domain is required for every row.";
+                continue;
+            }
+
+            if ($rawUrl === '') {
+                $validationErrors[] = "Installation URL is required for domain \"{$domainHost}\".";
+                continue;
+            }
+
+            $fullScriptUrl = $rawUrl;
+
+            if (str_starts_with($fullScriptUrl, '//')) {
+                $fullScriptUrl = 'https:' . $fullScriptUrl;
+            }
+
+            if (!preg_match($scriptUrlPattern, $fullScriptUrl)) {
+                $validationErrors[] = "Invalid installation URL for domain \"{$domainHost}\": must be a CookieScript HTTPS script URL.";
+                continue;
+            }
+
+            if (array_key_exists($domainHost, $normalisedDomainMap)) {
+                $validationErrors[] = "Duplicate domain \"{$domainHost}\" detected.";
+                continue;
+            }
+
+            $normalisedDomainMap[$domainHost] = $rawUrl;
+        }
+
+        if (!empty($validationErrors)) {
+            return response()->json(['error' => 'Validation failed', 'details' => $validationErrors], 422);
+        }
+
+        DomainBannerSetting::updateOrCreate(
+            ['shop_domain' => $shop],
+            [
+                'multi_domain_enabled' => $multiDomainEnabled,
+                'domain_map' => $normalisedDomainMap,
+            ]
+        );
+
+        $this->publishScriptsToTheme($shop, $request);
+
+        return response()->json(['statusText' => 'Domain banner map saved successfully']);
     }
 
     public function createGoogleConsentModeScript(Request $request)

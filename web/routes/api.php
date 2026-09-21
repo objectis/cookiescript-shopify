@@ -20,3 +20,5 @@ Route::delete('/remove-script-tag/{id}', [ScriptController::class, 'removeScript
 Route::post('/google-consent-mode', [GoogleConsentController::class, 'store']);
 Route::post('/add-script-tag', [ScriptController::class, 'addScriptTag']);
 Route::get('/get-stored-settings', [GoogleConsentController::class, 'getStoredSettings']);
+Route::get('/domain-banner-map', [ScriptController::class, 'getDomainBannerMap']);
+Route::post('/domain-banner-map', [ScriptController::class, 'saveDomainBannerMap']);

@@ -65,7 +65,12 @@ Route::fallback(function (Request $request) {
         if (file_exists(base_path('frontend/dist/index.html'))) {
             return file_get_contents(base_path('frontend/dist/index.html'));
         }
-        return file_get_contents(base_path('frontend/index.html'));
+
+        if (file_exists(base_path('frontend/index.html'))) {
+            return file_get_contents(base_path('frontend/index.html'));
+        }
+        
+        abort(404, 'Frontend index.html not found.');
     } else {
         return redirect(Utils::getEmbeddedAppUrl($request->query("host", null)) . "/" . $request->path());
     }

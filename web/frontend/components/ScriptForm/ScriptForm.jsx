@@ -1,15 +1,15 @@
 import React from "react"
-import {Formik, Field, Form, ErrorMessage} from "formik"
+import { Formik, Field, Form, ErrorMessage } from "formik"
 import * as Yup from "yup"
 import ErrorIcon from "../../assets/images/icons/erorr-circle.svg"
 
-export default function ScriptForm({handleSubmit, isLoading}) {
+export default function ScriptForm({ handleSubmit, isLoading }) {
 
   const validationSchema = Yup.object().shape({
     script: Yup.string()
       .required('This field is required')
       .trim()
-      .matches(/\/\/geo\.cookie-script\.com\/s\/[a-zA-Z0-9]{32}|\/\/cdn\.cookie-script\.com\/s\/[a-zA-Z0-9]{32}/ , 'Format is incorrect')
+      .matches(/\/\/geo\.cookie-script\.com\/s\/[a-zA-Z0-9]{32}|\/\/cdn\.cookie-script\.com\/s\/[a-zA-Z0-9]{32}/, 'Format is incorrect')
   })
 
   const initialValues = {
@@ -25,29 +25,29 @@ export default function ScriptForm({handleSubmit, isLoading}) {
           initialValues={initialValues}
           validateOnChange={false}
           validateOnBlur={false}
-          onSubmit={(values, {resetForm}) => {
+          onSubmit={(values, { resetForm }) => {
             handleSubmit(values)
             resetForm(initialValues)
           }}
         >
-          {({errors}) => (
+          {({ errors }) => (
             <Form className="form-control__form">
               <Field className={`form-control__input ${errors.script ? 'form-control__input-error' : ''}`} id="script"
-                     name="script" placeholder="//cdn.cookie-script.com/s/********************************.js"/>
+                name="script" placeholder="//cdn.cookie-script.com/s/********************************.js" />
               {errors.script
                 ? <div className="form-control__error">
-                  <img src={ErrorIcon} alt="Error Icon"/>
-                  <ErrorMessage name="script" component="span"/>
+                  <img src={ErrorIcon} alt="Error Icon" />
+                  <ErrorMessage name="script" component="span" />
                 </div>
                 : null}
               <div className="cookie-script__buttons-wrapper">
                 <button className="btn btn--primary" type="submit" disabled={isLoading}>Add Script</button>
-                {/*<button className="btn btn--primary" type="button" disabled={isLoading} onClick={saveScriptsSettings}>Save Scripts</button>*/}
               </div>
             </Form>
           )}
         </Formik>
       </div>
+      <hr></hr>
     </>
   )
 }
