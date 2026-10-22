@@ -5,3 +5,40 @@
 @import "app_styles/-5_messages";
 @import "app_styles/-6_google-consent-mode";
 @import "app_styles/-7_domain-banner-map";
+
+/* Inter (https://rsms.me/inter), bundled with the app so no external font service is contacted.
+   Licensed under the SIL Open Font License 1.1, see ../fonts/inter/LICENSE.txt */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('../fonts/inter/InterVariable.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: italic;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('../fonts/inter/InterVariable-Italic.woff2') format('woff2');
+}
+
+$font-family-inter: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+
+body {
+  font-family: $font-family-inter;
+}
+
+.cookie-script-home {
+  /* Polaris components read their font from this variable */
+  --p-font-family-sans: #{$font-family-inter};
+  font-family: $font-family-inter;
+
+  /* Every element of the app, including form controls that don't inherit fonts by default */
+  *,
+  *::before,
+  *::after {
+    font-family: $font-family-inter !important;
+  }
+}

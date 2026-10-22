@@ -13,8 +13,8 @@ class TopLevelRedirection
 
     public static function redirect(Request $request, $redirectUrl)
     {
-        $bearerPresent = preg_match("/Bearer (.*)/", $request->header('Authorization', ''));
-        if ($bearerPresent !== false) {
+        $bearerPresent = preg_match("/Bearer (.*)/", (string) $request->header('Authorization', '')) === 1;
+        if ($bearerPresent) {
             return response('', 401, [
                 self::REDIRECT_HEADER => '1',
                 self::REDIRECT_URL_HEADER => $redirectUrl,

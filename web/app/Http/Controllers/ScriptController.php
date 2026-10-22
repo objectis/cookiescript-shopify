@@ -3,18 +3,23 @@
 namespace App\Http\Controllers;
 
 use App\Http\Controllers\Traits\SessionTrait;
+use App\Lib\CookieScriptUrl;
+use App\Lib\ThemeScriptBuilder;
 use App\Models\DomainBannerSetting;
 use App\Models\ScriptSrc;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Validator;
-use Shopify\Exception\CookieNotFoundException;
-use Shopify\Exception\MissingArgumentException;
+use Shopify\Auth\Session;
 
 class ScriptController extends Controller
 {
     use SessionTrait;
+
+    private const SNIPPET_NAME = 'google_consent_mode_script';
+
+    private const THEME_UPDATE_FAILED = 'Failed to update the store theme. Please try again.';
 
     public function addScript(Request $request)
     {
@@ -24,27 +29,40 @@ class ScriptController extends Controller
             return response()->json(['error' => 'Session not found'], 401);
         }
 
-        $shop = $session->getShop();
-        $url = $request->input('url');
+        $url = CookieScriptUrl::normalize($request->input('url'));
 
-        if (is_null($url)) {
-            return response()->json(['error' => 'Invalid URL'], 400);
+        if ($url === null) {
+            return response()->json([
+                'error' => 'Validation failed',
+                'details' => [
+                    'url' => ['Must be a CookieScript script URL, e.g. //cdn.cookie-script.com/s/<code>.js or '
+                        . '//cdn.cookie-script.com/staging/<code>.js'],
+                ],
+            ], 422);
         }
 
-        $validator = Validator::make(['url' => $url], [
-            'url' => 'required|url'
-        ]);
+        $alreadyAdded = ScriptSrc::where('shop_domain', $session->getShop())->where('src', $url)->exists();
 
-        if ($validator->fails()) {
-            return response()->json(['error' => 'Validation failed', 'details' => $validator->errors()], 422);
+        if ($alreadyAdded) {
+            return response()->json([
+                'error' => 'Validation failed',
+                'details' => ['url' => ['This script has already been added.']],
+            ], 422);
         }
 
         $scriptSrc = ScriptSrc::create([
-            'shop_domain' => $shop,
-            'src' => $url
+            'shop_domain' => $session->getShop(),
+            'src' => $url,
         ]);
 
-        $this->publishScriptsToTheme($shop, $request);
+        $publishResult = $this->publishScriptsToTheme($session);
+
+        if (!$publishResult['success']) {
+            // Keep the database in sync with the theme, so the merchant can simply try again
+            $scriptSrc->delete();
+
+            return response()->json(['error' => $publishResult['error']], $publishResult['status']);
+        }
 
         return response()->json(['message' => 'Script added successfully', 'script' => $scriptSrc]);
     }
@@ -57,8 +75,7 @@ class ScriptController extends Controller
             return response()->json(['error' => 'Session not found'], 401);
         }
 
-        $shop = $session->getShop();
-        $scripts = ScriptSrc::where('shop_domain', $shop)->get();
+        $scripts = ScriptSrc::where('shop_domain', $session->getShop())->get();
 
         return response()->json($scripts);
     }
@@ -80,182 +97,34 @@ class ScriptController extends Controller
 
         $scriptSrc->delete();
 
-        $this->publishScriptsToTheme($shop, $request);
+        $publishResult = $this->publishScriptsToTheme($session);
+
+        if (!$publishResult['success']) {
+            // The script is still in the theme, so restore it to let the merchant retry the removal
+            $scriptSrc->exists = false;
+            $scriptSrc->save();
+
+            return response()->json(['error' => $publishResult['error']], $publishResult['status']);
+        }
 
         return response()->json(['message' => 'Script removed successfully']);
     }
 
-    private function publishScriptsToTheme($shop, $request)
-    {
-        $this->addScriptTag($request);
-    }
-
-    private function getMainThemeId($shop, $accessToken)
-    {
-        $themeResponse = Http::withHeaders(['X-Shopify-Access-Token' => $accessToken])
-            ->get("https://{$shop}/admin/api/2023-04/themes.json");
-
-        if (!$themeResponse->successful()) {
-            Log::error('Failed to fetch themes', ['response' => $themeResponse->body()]);
-            return null;
-        }
-
-        $themes = $themeResponse->json('themes');
-        $mainTheme = collect($themes)->firstWhere('role', 'main');
-
-        return $mainTheme ? $mainTheme['id'] : null;
-    }
-
     public function addScriptTag(Request $request)
     {
-        try {
-            $session = $this->loadCurrentSession($request);
+        $session = $this->loadCurrentSession($request);
 
-            if (!$session) {
-                return response()->json(['error' => 'Session not found'], 401);
-            }
-
-            $shop = $session->getShop();
-            $accessToken = $session->getAccessToken();
-
-            $googleConsentModeScript = $this->createGoogleConsentModeScript($request);
-            $scriptContent = $this->generateScriptContent($request, $shop, $googleConsentModeScript);
-
-            return $this->addGoogleConsentModeScript($shop, $accessToken, $request, $scriptContent);
-        } catch (CookieNotFoundException | MissingArgumentException $exception) {
-            Log::error('Session load error', ['exception' => $exception]);
-            return response()->json(['error' => 'Failed to load session', 'details' => $exception->getMessage()], 500);
-        }
-    }
-
-    private function getSettings(Request $request)
-    {
-        $googleConsentController = new GoogleConsentController();
-        $getGoogleConsentModeSettings = $googleConsentController->getStoredSettings($request);
-
-        return json_decode($getGoogleConsentModeSettings->getContent());
-    }
-
-    private function addGoogleConsentModeScript($shop, $accessToken, Request $request, $scriptContent)
-    {
-        $themeId = $this->getMainThemeId($shop, $accessToken);
-
-        if (!$themeId) {
-            return response()->json(['error' => 'Main theme not found'], 404);
+        if (!$session) {
+            return response()->json(['error' => 'Session not found'], 401);
         }
 
-        if (
-            $this->createScriptSnippet($shop, $accessToken, $themeId, $scriptContent)
-            && $this->updateLayoutWithGoogleConsent($shop, $accessToken, $themeId)
-        ) {
-            return response()->json(["OK"]);
+        $publishResult = $this->publishScriptsToTheme($session);
+
+        if (!$publishResult['success']) {
+            return response()->json(['error' => $publishResult['error']], $publishResult['status']);
         }
 
-        return response()->json(['error' => 'Failed to add script'], 500);
-    }
-
-    private function createScriptSnippet($shop, $accessToken, $themeId, $scriptTagContent)
-    {
-        $assetResponse = Http::withHeaders(['X-Shopify-Access-Token' => $accessToken])
-            ->put("https://{$shop}/admin/api/2023-04/themes/{$themeId}/assets.json", [
-                'asset' => [
-                    'key' => 'snippets/google_consent_mode_script.liquid',
-                    'value' => $scriptTagContent,
-                ]
-            ]);
-
-        if (!$assetResponse->successful()) {
-            Log::error('Failed to create script snippet', ['response' => $assetResponse->body()]);
-            return false;
-        }
-
-        return true;
-    }
-
-    private function updateLayoutWithGoogleConsent($shop, $accessToken, $themeId)
-    {
-        $layoutResponse = Http::withHeaders(['X-Shopify-Access-Token' => $accessToken])
-            ->get("https://{$shop}/admin/api/2023-04/themes/{$themeId}/assets.json", [
-                'asset[key]' => 'layout/theme.liquid',
-            ]);
-
-        if (!$layoutResponse->successful()) {
-            Log::error('Failed to fetch layout file', ['response' => $layoutResponse->body()]);
-            return false;
-        }
-
-        $layoutContent = $layoutResponse->json('asset')['value'];
-        $includeSnippet = "{% render 'google_consent_mode_script' %}";
-
-        if (strpos($layoutContent, $includeSnippet) === false) {
-            $layoutContent = str_replace('</head>', "{$includeSnippet}\n</head>", $layoutContent);
-
-            $updateLayoutResponse = Http::withHeaders(['X-Shopify-Access-Token' => $accessToken])
-                ->put("https://{$shop}/admin/api/2023-04/themes/{$themeId}/assets.json", [
-                    'asset' => [
-                        'key' => 'layout/theme.liquid',
-                        'value' => $layoutContent,
-                    ]
-                ]);
-
-            if (!$updateLayoutResponse->successful()) {
-                Log::error('Failed to update layout file', ['response' => $updateLayoutResponse->body()]);
-
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    private function getScriptSources($shop)
-    {
-        return ScriptSrc::where('shop_domain', $shop)
-            ->orderBy('id', 'desc')
-            ->pluck('src')
-            ->toArray();
-    }
-
-    private function generateScriptContent($request, $shop, $googleConsentModeScript = null)
-    {
-        $scriptTags = "";
-        $settings = $this->getSettings($request);
-
-        if (!empty($settings?->global_consent?->google_consent_enabled)) {
-            $scriptTags .= "<script>\n{$googleConsentModeScript}\n</script>";
-        }
-
-        $domainSetting = DomainBannerSetting::where('shop_domain', $shop)->first();
-
-        if ($domainSetting && $domainSetting->multi_domain_enabled && !empty($domainSetting->domain_map)) {
-            $fallbackScripts = $this->getScriptSources($shop);
-            $fallbackTags = '';
-
-            foreach ($fallbackScripts as $fallbackScriptUrl) {
-                $fallbackTags .= "<script data-cs-plugin='shopify' src=\"{$fallbackScriptUrl}\"></script>\n";
-            }
-
-            $scriptTags .= "\n{%- assign _cs_host = request.host | downcase -%}\n";
-            $scriptTags .= "{% case _cs_host %}\n";
-
-            foreach ($domainSetting->domain_map as $domainName => $bannerScriptUrl) {
-                $domainName = strtolower($domainName);
-                $escapedScriptUrl  = htmlspecialchars($bannerScriptUrl, ENT_QUOTES, 'UTF-8');
-                $scriptTags .= "{% when \"{$domainName}\" %}<script data-cs-plugin='shopify' src=\"{$escapedScriptUrl}\"></script>\n";
-            }
-
-            $scriptTags .= "{% else %}{$fallbackTags}";
-            $scriptTags .= "{% endcase %}\n";
-        } else {
-            $scripts = $this->getScriptSources($shop);
-            if (count($scripts) > 0) {
-                foreach ($scripts as $scriptUrl) {
-                    $scriptTags .= "<script data-cs-plugin='shopify' src=\"{$scriptUrl}\"></script>\n";
-                }
-            }
-        }
-
-        return $scriptTags;
+        return response()->json(["OK"]);
     }
 
     public function getDomainBannerMap(Request $request)
@@ -266,8 +135,7 @@ class ScriptController extends Controller
             return response()->json(['error' => 'Session not found'], 401);
         }
 
-        $shop                 = $session->getShop();
-        $domainBannerSetting  = DomainBannerSetting::where('shop_domain', $shop)->first();
+        $domainBannerSetting = DomainBannerSetting::where('shop_domain', $session->getShop())->first();
 
         return response()->json([
             'multi_domain_enabled' => $domainBannerSetting?->multi_domain_enabled ?? false,
@@ -284,45 +152,70 @@ class ScriptController extends Controller
         }
 
         $shop = $session->getShop();
-        $multiDomainEnabled = (bool) $request->input('multi_domain_enabled', false);
-        $domainMapInput = $request->input('domain_map', []);
+        $multiDomainEnabled = filter_var(
+            $request->input('multi_domain_enabled', false),
+            FILTER_VALIDATE_BOOLEAN
+        );
+        $domainMapInput = $request->input('domain_map') ?? [];
+
+        if (!is_array($domainMapInput)) {
+            return response()->json([
+                'error' => 'Validation failed',
+                'details' => ['The domain map must be a list of domains.'],
+            ], 422);
+        }
 
         $normalisedDomainMap = [];
         $validationErrors = [];
 
-        $scriptUrlPattern = '/^https:\/\/(geo|cdn)\.cookie-script\.com\/(s|staging)\/[a-zA-Z0-9]{32}\.js$/';
-
         foreach ($domainMapInput as $domainMapEntry) {
+            if (!$multiDomainEnabled) {
+                // The rows are hidden and not rendered while multi-domain mode is off (the snippet builder
+                // validates every row again), so keep them as entered instead of blocking the save.
+                if (is_array($domainMapEntry) && is_string($domainMapEntry['domain'] ?? null)) {
+                    $hiddenDomain = CookieScriptUrl::normalizeHostname($domainMapEntry['domain'])
+                        ?? mb_substr(strtolower(trim($domainMapEntry['domain'])), 0, 255);
+                    $hiddenUrl = is_string($domainMapEntry['url'] ?? null) ? trim($domainMapEntry['url']) : '';
+
+                    if ($hiddenDomain !== '' && !array_key_exists($hiddenDomain, $normalisedDomainMap)) {
+                        $normalisedDomainMap[$hiddenDomain] = CookieScriptUrl::normalize($hiddenUrl)
+                            ?? mb_substr($hiddenUrl, 0, 2048);
+                    }
+                }
+                continue;
+            }
+
+            if (!is_array($domainMapEntry)) {
+                $validationErrors[] = 'Every domain map row must contain a domain and an installation URL.';
+                continue;
+            }
+
             $rawDomain = $domainMapEntry['domain'] ?? '';
             $rawUrl = $domainMapEntry['url'] ?? '';
 
-            $domainHost = strtolower($rawDomain);
-
-            if (str_contains($domainHost, '://')) {
-                $parsedUrl = parse_url($domainHost);
-                $domainHost = $parsedUrl['host'] ?? '';
-            }
-
-            $domainHost = rtrim($domainHost, '/');
-
-            if ($domainHost === '') {
+            if (!is_string($rawDomain) || trim($rawDomain) === '') {
                 $validationErrors[] = "Domain is required for every row.";
                 continue;
             }
 
-            if ($rawUrl === '') {
+            $domainHost = CookieScriptUrl::normalizeHostname($rawDomain);
+
+            if ($domainHost === null) {
+                $validationErrors[] = 'Invalid domain "' . mb_substr(trim($rawDomain), 0, 100)
+                    . '": enter a valid hostname (e.g. example.com).';
+                continue;
+            }
+
+            if (!is_string($rawUrl) || trim($rawUrl) === '') {
                 $validationErrors[] = "Installation URL is required for domain \"{$domainHost}\".";
                 continue;
             }
 
-            $fullScriptUrl = $rawUrl;
+            $scriptUrl = CookieScriptUrl::normalize($rawUrl);
 
-            if (str_starts_with($fullScriptUrl, '//')) {
-                $fullScriptUrl = 'https:' . $fullScriptUrl;
-            }
-
-            if (!preg_match($scriptUrlPattern, $fullScriptUrl)) {
-                $validationErrors[] = "Invalid installation URL for domain \"{$domainHost}\": must be a CookieScript HTTPS script URL.";
+            if ($scriptUrl === null) {
+                $validationErrors[] = "Invalid installation URL for domain \"{$domainHost}\": "
+                    . "must be a CookieScript HTTPS script URL.";
                 continue;
             }
 
@@ -331,14 +224,20 @@ class ScriptController extends Controller
                 continue;
             }
 
-            $normalisedDomainMap[$domainHost] = $rawUrl;
+            $normalisedDomainMap[$domainHost] = $scriptUrl;
         }
 
         if (!empty($validationErrors)) {
             return response()->json(['error' => 'Validation failed', 'details' => $validationErrors], 422);
         }
 
-        DomainBannerSetting::updateOrCreate(
+        $previousSetting = DomainBannerSetting::where('shop_domain', $shop)->first();
+        $previousValues = $previousSetting ? [
+            'multi_domain_enabled' => $previousSetting->multi_domain_enabled,
+            'domain_map' => $previousSetting->domain_map,
+        ] : null;
+
+        $domainBannerSetting = DomainBannerSetting::updateOrCreate(
             ['shop_domain' => $shop],
             [
                 'multi_domain_enabled' => $multiDomainEnabled,
@@ -346,68 +245,279 @@ class ScriptController extends Controller
             ]
         );
 
-        $this->publishScriptsToTheme($shop, $request);
+        $publishResult = $this->publishScriptsToTheme($session);
+
+        if (!$publishResult['success']) {
+            // Restore the previous settings, so a later publish doesn't push changes the merchant saw fail
+            if ($previousValues === null) {
+                $domainBannerSetting->delete();
+            } else {
+                $domainBannerSetting->update($previousValues);
+            }
+
+            return response()->json(['error' => $publishResult['error']], $publishResult['status']);
+        }
 
         return response()->json(['statusText' => 'Domain banner map saved successfully']);
     }
 
-    public function createGoogleConsentModeScript(Request $request)
+    /**
+     * Regenerates the theme snippet from the stored settings and makes sure the main theme layout renders it.
+     *
+     * @return array{success: bool, status: int, error: string|null}
+     */
+    private function publishScriptsToTheme(Session $session): array
     {
-        $googleConsentController = new GoogleConsentController();
-        $getGoogleConsentModeSettings = $googleConsentController->getStoredSettings($request);
-        $settings = json_decode($getGoogleConsentModeSettings->getContent());
-        $globalSettings = [];
-        $regionalSettings = [];
+        $shop = $session->getShop();
+        $accessToken = $session->getAccessToken();
+        $scriptContent = null;
 
-        if (isset($settings->global_consent)) {
-            $globalSettings = (array) $settings->global_consent;
+        try {
+            $scriptContent = $this->generateScriptContent($shop);
+            $themeId = $this->getMainThemeId($shop, $accessToken);
+
+            if (
+                $themeId
+                && $this->createScriptSnippet($shop, $accessToken, $themeId, $scriptContent)
+                && $this->updateLayoutWithGoogleConsent($shop, $accessToken, $themeId)
+            ) {
+                return ['success' => true, 'status' => 200, 'error' => null];
+            }
+
+            if (!$themeId && !$this->isLocalThemePreviewEnabled()) {
+                return ['success' => false, 'status' => 404, 'error' => 'Main theme not found'];
+            }
+        } catch (\Throwable $exception) {
+            Log::error('Failed to publish scripts to the theme', ['shop' => $shop, 'exception' => $exception]);
         }
 
-        if (isset($settings->regional_consents) && is_array($settings->regional_consents)) {
-            foreach ($settings->regional_consents as $consent) {
-                $regionalSettings[] = (array) $consent;
+        if ($scriptContent !== null && $this->isLocalThemePreviewEnabled()) {
+            return $this->writeLocalThemePreview($shop, $scriptContent);
+        }
+
+        return ['success' => false, 'status' => 500, 'error' => self::THEME_UPDATE_FAILED];
+    }
+
+    /**
+     * Local testing only: Shopify rejects theme file writes from apps without the Online Store protected scope
+     * exemption (e.g. a newly created development app). When SHOPIFY_LOCAL_THEME_PREVIEW=true, the generated
+     * snippet is saved to storage/app/theme-preview instead, so the rest of the plugin can still be tested.
+     * It only works in the local, development (used by the Shopify CLI) and testing environments.
+     */
+    private function isLocalThemePreviewEnabled(): bool
+    {
+        return (bool) Config::get('shopify.local_theme_preview', false)
+            && app()->environment(['local', 'development', 'testing']);
+    }
+
+    private function writeLocalThemePreview(string $shop, string $scriptContent): array
+    {
+        try {
+            $previewDirectory = storage_path('app' . DIRECTORY_SEPARATOR . 'theme-preview');
+
+            if (!is_dir($previewDirectory) && !mkdir($previewDirectory, 0755, true) && !is_dir($previewDirectory)) {
+                throw new \RuntimeException("Could not create $previewDirectory");
+            }
+
+            // The shop comes from the verified session and only contains [a-z0-9.-]
+            $fileName = preg_replace('/[^a-z0-9.\-]/', '_', strtolower($shop)) . '__' . self::SNIPPET_NAME . '.liquid';
+            $previewPath = $previewDirectory . DIRECTORY_SEPARATOR . $fileName;
+
+            $header = "{% comment %}\n"
+                . "  LOCAL THEME PREVIEW - not uploaded to Shopify.\n"
+                . "  This is the content the app would save as snippets/" . self::SNIPPET_NAME . ".liquid\n"
+                . "  and render in layout/theme.liquid with {% render '" . self::SNIPPET_NAME . "' %}.\n"
+                . "  Shop: {$shop}\n"
+                . "  Generated: " . date('Y-m-d H:i:s') . "\n"
+                . "{% endcomment %}\n";
+
+            if (file_put_contents($previewPath, $header . $scriptContent) === false) {
+                throw new \RuntimeException("Could not write $previewPath");
+            }
+
+            Log::info('Theme update skipped: snippet saved to the local theme preview file', [
+                'shop' => $shop,
+                'file' => $previewPath,
+            ]);
+
+            return ['success' => true, 'status' => 200, 'error' => null];
+        } catch (\Throwable $exception) {
+            Log::error('Failed to write the local theme preview', ['shop' => $shop, 'exception' => $exception]);
+
+            return ['success' => false, 'status' => 500, 'error' => self::THEME_UPDATE_FAILED];
+        }
+    }
+
+    private function adminApiUrl(string $shop, string $path): string
+    {
+        $apiVersion = Config::get('shopify.rest_api_version', '2023-04');
+
+        return "https://{$shop}/admin/api/{$apiVersion}/{$path}";
+    }
+
+    private function getMainThemeId($shop, $accessToken)
+    {
+        $themeResponse = Http::withHeaders(['X-Shopify-Access-Token' => $accessToken])
+            ->get($this->adminApiUrl($shop, 'themes.json'));
+
+        if (!$themeResponse->successful()) {
+            Log::error('Failed to fetch themes', ['shop' => $shop, 'response' => $themeResponse->body()]);
+            return null;
+        }
+
+        $themes = $themeResponse->json('themes');
+        $mainTheme = collect($themes)->firstWhere('role', 'main');
+
+        return $mainTheme ? $mainTheme['id'] : null;
+    }
+
+    private function createScriptSnippet($shop, $accessToken, $themeId, $scriptTagContent)
+    {
+        $assetResponse = Http::withHeaders(['X-Shopify-Access-Token' => $accessToken])
+            ->put($this->adminApiUrl($shop, "themes/{$themeId}/assets.json"), [
+                'asset' => [
+                    'key' => 'snippets/' . self::SNIPPET_NAME . '.liquid',
+                    'value' => $scriptTagContent,
+                ]
+            ]);
+
+        if (!$assetResponse->successful()) {
+            Log::error('Failed to create script snippet', ['shop' => $shop, 'response' => $assetResponse->body()]);
+            return false;
+        }
+
+        return true;
+    }
+
+    private function updateLayoutWithGoogleConsent($shop, $accessToken, $themeId)
+    {
+        $layoutResponse = Http::withHeaders(['X-Shopify-Access-Token' => $accessToken])
+            ->get($this->adminApiUrl($shop, "themes/{$themeId}/assets.json"), [
+                'asset[key]' => 'layout/theme.liquid',
+            ]);
+
+        if (!$layoutResponse->successful()) {
+            Log::error('Failed to fetch layout file', ['shop' => $shop, 'response' => $layoutResponse->body()]);
+            return false;
+        }
+
+        $layoutContent = $layoutResponse->json('asset.value');
+
+        if (!is_string($layoutContent)) {
+            Log::error('Layout file has no content', ['shop' => $shop]);
+            return false;
+        }
+
+        $snippetAlreadyRendered = preg_match(
+            '/\{%-?\s*(render|include)\s+[\'"]' . self::SNIPPET_NAME . '[\'"]/',
+            $layoutContent
+        ) === 1;
+
+        if ($snippetAlreadyRendered) {
+            return true;
+        }
+
+        $headClosePosition = $this->findPositionOutsideLiquidBlocks($layoutContent, '#</head>#i');
+
+        if ($headClosePosition === false) {
+            Log::error('Could not find </head> in layout/theme.liquid', ['shop' => $shop]);
+            return false;
+        }
+
+        // Render the snippet before {{ content_for_header }} when it is in the <head>, so the consent defaults and
+        // the banner load before Shopify's and other apps' tracking scripts. Otherwise, right before </head>.
+        $contentForHeaderPosition = $this->findPositionOutsideLiquidBlocks(
+            $layoutContent,
+            '/\{\{-?\s*content_for_header\s*-?\}\}/'
+        );
+        $insertPosition = $contentForHeaderPosition !== false && $contentForHeaderPosition < $headClosePosition
+            ? $contentForHeaderPosition
+            : $headClosePosition;
+
+        // Insert the snippet only once
+        $includeSnippet = "{% render '" . self::SNIPPET_NAME . "' %}\n";
+        $layoutContent = substr_replace($layoutContent, $includeSnippet, $insertPosition, 0);
+
+        $updateLayoutResponse = Http::withHeaders(['X-Shopify-Access-Token' => $accessToken])
+            ->put($this->adminApiUrl($shop, "themes/{$themeId}/assets.json"), [
+                'asset' => [
+                    'key' => 'layout/theme.liquid',
+                    'value' => $layoutContent,
+                ]
+            ]);
+
+        if (!$updateLayoutResponse->successful()) {
+            Log::error('Failed to update layout file', ['shop' => $shop, 'response' => $updateLayoutResponse->body()]);
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Position of the first match of $pattern that is not inside a Liquid {% comment %} or {% raw %} block.
+     *
+     * @return int|false
+     */
+    private function findPositionOutsideLiquidBlocks(string $layoutContent, string $pattern)
+    {
+        $ignoredRanges = [];
+        $blockPattern = '/\{%-?\s*(comment|raw)\s*-?%\}.*?\{%-?\s*end\1\s*-?%\}/is';
+
+        if (preg_match_all($blockPattern, $layoutContent, $blockMatches, PREG_OFFSET_CAPTURE)) {
+            foreach ($blockMatches[0] as [$blockContent, $blockStart]) {
+                $ignoredRanges[] = [$blockStart, $blockStart + strlen($blockContent)];
             }
         }
 
-        $googleConsentModeScript = "
-        window.dataLayer = window.dataLayer || [];
-        window.gtag = window.gtag || function () {
-            dataLayer.push(arguments);
-        };";
-
-        foreach ($regionalSettings as $regional) {
-            $encodedRegionCode = json_encode(array_map('trim', explode(',', $regional['region'])));
-
-            $googleConsentModeScript .= "
-        gtag('consent', 'default', {
-            ad_storage: '{$regional['ad_storage']}',
-            analytics_storage: '{$regional['analytics_storage']}',
-            ad_user_data: '{$regional['ad_user_data']}',
-            ad_personalization: '{$regional['ad_personalization']}',
-            functionality_storage: '{$regional['functionality_storage']}',
-            personalization_storage: '{$regional['personalization_storage']}',
-            security_storage: '{$regional['security_storage']}',
-            wait_for_update: {$regional['wait_for_update']},
-            region: JSON.parse('{$encodedRegionCode}'.replace(/&quot;/g, '\"'))
-        });";
+        if (!preg_match_all($pattern, $layoutContent, $matches, PREG_OFFSET_CAPTURE)) {
+            return false;
         }
 
-        $googleConsentModeScript .= "
-        gtag('consent', 'default', {
-            ad_storage: '{$globalSettings['ad_storage']}',
-            analytics_storage: '{$globalSettings['analytics_storage']}',
-            ad_user_data: '{$globalSettings['ad_user_data']}',
-            ad_personalization: '{$globalSettings['ad_personalization']}',
-            functionality_storage: '{$globalSettings['functionality_storage']}',
-            personalization_storage: '{$globalSettings['personalization_storage']}',
-            security_storage: '{$globalSettings['security_storage']}',
-            wait_for_update: {$globalSettings['wait_for_update']}
-        });
+        foreach ($matches[0] as [, $position]) {
+            $isIgnored = false;
 
-        gtag('set', 'developer_id.dMmY1Mm', true);
-        gtag('set', 'ads_data_redaction', true);
-        ";
+            foreach ($ignoredRanges as [$rangeStart, $rangeEnd]) {
+                if ($position >= $rangeStart && $position < $rangeEnd) {
+                    $isIgnored = true;
+                    break;
+                }
+            }
 
-        return $googleConsentModeScript;
+            if (!$isIgnored) {
+                return $position;
+            }
+        }
+
+        return false;
+    }
+
+    private function getScriptSources($shop)
+    {
+        return ScriptSrc::where('shop_domain', $shop)
+            ->orderBy('id', 'desc')
+            ->pluck('src')
+            ->toArray();
+    }
+
+    private function generateScriptContent(string $shop): string
+    {
+        $settings = GoogleConsentController::settingsForShop($shop);
+        $globalConsent = (array) ($settings['global_consent'] ?? []);
+
+        $domainSetting = DomainBannerSetting::where('shop_domain', $shop)->first();
+        $domainMap = null;
+
+        if ($domainSetting && $domainSetting->multi_domain_enabled && !empty($domainSetting->domain_map)) {
+            $domainMap = (array) $domainSetting->domain_map;
+        }
+
+        return ThemeScriptBuilder::build(
+            $globalConsent,
+            (array) ($settings['regional_consents'] ?? []),
+            !empty($globalConsent['google_consent_enabled']),
+            $this->getScriptSources($shop),
+            $domainMap
+        );
     }
 }

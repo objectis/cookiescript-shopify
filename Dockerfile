@@ -18,7 +18,10 @@ COPY web/nginx.conf /etc/nginx/nginx.conf
 # Use the default production configuration
 RUN mv "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini"
 
-RUN composer install
+# Remove cached package manifests from the repository (they reference dev-only packages) and install without
+# dev dependencies, so debugging tools such as Ignition never ship to production
+RUN rm -f bootstrap/cache/packages.php bootstrap/cache/services.php
+RUN composer install --no-dev --optimize-autoloader --no-interaction
 RUN touch /app/storage/db.sqlite
 RUN chown www-data:www-data /app/storage/db.sqlite
 

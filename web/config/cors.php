@@ -19,7 +19,10 @@ return [
 
     'allowed_methods' => ['*'],
 
-    'allowed_origins' => ['*'],
+    // The embedded app calls its API from its own origin, so cross-origin access is limited to the app host
+    'allowed_origins' => [
+        'https://' . preg_replace('#^https?://#', '', (string) env('HOST', 'localhost')),
+    ],
 
     'allowed_origins_patterns' => [],
 

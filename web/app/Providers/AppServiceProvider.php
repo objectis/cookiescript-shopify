@@ -39,7 +39,7 @@ class AppServiceProvider extends ServiceProvider
         Context::initialize(
             env('SHOPIFY_API_KEY', 'not_defined'),
             env('SHOPIFY_API_SECRET', 'not_defined'),
-            env('SCOPES_READ', 'not_defined'),
+            env('SCOPES_READ', env('SCOPES', 'not_defined')),
             $host,
             new DbSessionStorage(),
             '2023-04',

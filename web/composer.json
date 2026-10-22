@@ -66,10 +66,13 @@
         }
     },
     "config": {
+        "platform": {
+            "php": "8.1.0"
+        },
         "optimize-autoloader": true,
         "preferred-install": "dist",
         "sort-packages": true
     },
-    "minimum-stability": "dev",
+    "minimum-stability": "stable",
     "prefer-stable": true
 }

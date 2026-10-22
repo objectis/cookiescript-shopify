@@ -21,7 +21,8 @@ class CspHeader
      */
     public function handle(Request $request, Closure $next)
     {
-        $shop = Utils::sanitizeShopDomain($request->query('shop', ''));
+        $shopQuery = $request->query('shop', '');
+        $shop = Utils::sanitizeShopDomain(is_string($shopQuery) ? $shopQuery : '');
 
         if (Context::$IS_EMBEDDED_APP) {
             $domainHost = $shop ? "https://$shop" : "*.myshopify.com";

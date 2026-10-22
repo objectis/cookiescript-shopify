@@ -50,8 +50,13 @@ class EnsureShopifySession
                 );
         }
 
-        $shop = Utils::sanitizeShopDomain($request->query('shop', ''));
-        $session = Utils::loadCurrentSession($request->header(), $request->cookie(), $isOnline);
+        $shopQuery = $request->query('shop', '');
+        $shop = Utils::sanitizeShopDomain(is_string($shopQuery) ? $shopQuery : '');
+        try {
+            $session = Utils::loadCurrentSession($request->header(), $request->cookie(), $isOnline);
+        } catch (Exception $e) {
+            $session = null;
+        }
 
         if ($session && $shop && $session->getShop() !== $shop) {
             // This request is for a different shop. Go straight to login
@@ -86,18 +91,26 @@ class EnsureShopifySession
             }
         }
 
-        $bearerPresent = preg_match("/Bearer (.*)/", $request->header('Authorization', ''), $bearerMatches);
+        $bearerPresent = preg_match(
+            "/Bearer (.*)/",
+            (string) $request->header('Authorization', ''),
+            $bearerMatches
+        ) === 1;
         if (!$shop) {
             if ($session) {
                 $shop = $session->getShop();
             } elseif (Context::$IS_EMBEDDED_APP) {
-                if ($bearerPresent !== false) {
-                    $payload = Utils::decodeSessionToken($bearerMatches[1]);
-                    $shop = parse_url($payload['dest'], PHP_URL_HOST);
+                if ($bearerPresent) {
+                    try {
+                        $payload = Utils::decodeSessionToken($bearerMatches[1]);
+                        $shop = parse_url($payload['dest'], PHP_URL_HOST);
+                    } catch (Exception $e) {
+                        $shop = null;
+                    }
                 }
             }
         }
 
-        return TopLevelRedirection::redirect($request, "/api/auth?shop=$shop");
+        return TopLevelRedirection::redirect($request, "/api/auth?shop=" . urlencode((string) $shop));
     }
 }

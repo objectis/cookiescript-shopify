@@ -1,3 +1,10 @@
 web/vendor
 web/frontend/node_modules
 web/frontend/dist
+# Local data that must never end up in an image
+web/storage/logs/*.log
+web/storage/db.sqlite
+web/storage/app/theme-preview
+web/storage/framework/sessions/*
+web/storage/framework/cache/data/*
+web/storage/framework/views/*.php

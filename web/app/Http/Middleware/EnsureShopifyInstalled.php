@@ -19,7 +19,8 @@ class EnsureShopifyInstalled
      */
     public function handle(Request $request, Closure $next)
     {
-        $shop = $request->query('shop') ? Utils::sanitizeShopDomain($request->query('shop')) : null;
+        $shopQuery = $request->query('shop');
+        $shop = is_string($shopQuery) && $shopQuery !== '' ? Utils::sanitizeShopDomain($shopQuery) : null;
 
         $appInstalled = $shop && Session::where('shop', $shop)->where('access_token', '<>', null)->exists();
         $isExitingIframe = preg_match("/^ExitIframe/i", $request->path());

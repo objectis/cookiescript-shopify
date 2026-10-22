@@ -4,46 +4,108 @@ import ScriptForm from "../ScriptForm"
 import CookieScriptInformation from "../CookieScriptInformation"
 import DomainBannerMap from "../DomainBannerMap"
 import Cookie from "../../assets/images/icons/cookie.svg"
+import ErrorIcon from "../../assets/images/icons/erorr-circle.svg"
 import { useAuthenticatedFetch } from "../../hooks"
 import GoogleConsentMode from "../GoogleConsentMode/index.js"
+
+const DEFAULT_ERROR_MESSAGE = 'Something went wrong. Please try again.'
+
+async function getErrorMessage(response) {
+  try {
+    const data = await response.json()
+    const firstDetail = data?.details && Object.values(data.details).flat()[0]
+
+    if (typeof firstDetail === 'string') {
+      return firstDetail
+    }
+
+    if (typeof data?.error === 'string') {
+      return data.error
+    }
+  } catch (parseError) {
+    // The response has no JSON body, fall back to the generic message
+  }
+
+  return DEFAULT_ERROR_MESSAGE
+}
 
 export function Application() {
   const fetch = useAuthenticatedFetch()
   const [isLoading, setIsLoading] = useState(false)
   const [scripts, setScripts] = useState([])
+  const [addError, setAddError] = useState(null)
+  const [scriptsError, setScriptsError] = useState(null)
 
   async function loadScripts() {
     setIsLoading(true)
 
-    const response = await fetch('/api/get-script-tags')
-    const data = await response.json()
-    setScripts(data)
-    setIsLoading(false)
+    try {
+      const response = await fetch('/api/get-script-tags')
+
+      if (!response.ok) {
+        setScriptsError(await getErrorMessage(response))
+        return
+      }
+
+      const data = await response.json()
+      setScripts(Array.isArray(data) ? data : [])
+    } catch (loadError) {
+      console.error('Failed to load scripts', loadError)
+      setScriptsError(DEFAULT_ERROR_MESSAGE)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   const handleScriptRemove = async (scriptId) => {
     setIsLoading(true)
+    setScriptsError(null)
 
-    await fetch(`/api/remove-script-tag/${scriptId}`, {
-      method: 'DELETE'
-    })
-      .then(loadScripts)
-      .finally(() => setIsLoading(false))
+    try {
+      const response = await fetch(`/api/remove-script-tag/${scriptId}`, {
+        method: 'DELETE'
+      })
+
+      if (!response.ok) {
+        setScriptsError(await getErrorMessage(response))
+      }
+    } catch (removeError) {
+      console.error('Failed to remove script', removeError)
+      setScriptsError(DEFAULT_ERROR_MESSAGE)
+    }
+
+    await loadScripts()
   }
 
   const handleSubmit = async (values) => {
     setIsLoading(true)
+    setAddError(null)
+    setScriptsError(null)
+    let isAdded = false
 
-    await fetch('/api/add-script', {
-      method: 'POST',
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ url: values.script })
-    })
-      .then(loadScripts)
-      .finally(() => setIsLoading(false))
+    try {
+      const response = await fetch('/api/add-script', {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ url: values.script })
+      })
+
+      isAdded = response.ok
+
+      if (!response.ok) {
+        setAddError(await getErrorMessage(response))
+      }
+    } catch (addScriptError) {
+      console.error('Failed to add script', addScriptError)
+      setAddError(DEFAULT_ERROR_MESSAGE)
+    }
+
+    await loadScripts()
+
+    return isAdded
   }
 
   useEffect(() => {
@@ -69,9 +131,17 @@ export function Application() {
               isLoading={isLoading}
               handleScriptRemove={handleScriptRemove}
             />
+            {scriptsError
+              ? <div className="form-control__error">
+                <img src={ErrorIcon} alt="Error Icon" />
+                <span>{scriptsError}</span>
+              </div>
+              : null
+            }
             <ScriptForm
               isLoading={isLoading}
               handleSubmit={handleSubmit}
+              submitError={addError}
             />
           </section>
           <section>

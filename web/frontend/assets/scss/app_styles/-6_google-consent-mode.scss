@@ -13,6 +13,15 @@
     align-items: center;
   }
   
+  &__status {
+    font-size: 14px;
+    margin-top: 8px;
+
+    &--error {
+      color: #cc0000;
+    }
+  }
+  
   &__region-controls {
     display: flex;
     justify-content: space-between;

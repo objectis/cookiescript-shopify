@@ -6,7 +6,6 @@ node_modules
 /web/storage/*.key
 /web/storage/db.sqlite
 /web/vendor
-/web/composer.lock
 .env
 .env.*
 .env.example
@@ -24,3 +23,6 @@ yarn-error.log
 .idea
 .vscode
 /web/composer.phar
+
+# Local Shopify CLI development app config (see DEPLOY.md)
+shopify.app.dev.toml

@@ -1,18 +1,15 @@
 <?php
 
-use App\Exceptions\ShopifyProductCreatorException;
 use App\Lib\AuthRedirection;
+use App\Lib\EmbeddedAppUrl;
 use App\Lib\EnsureBilling;
-use App\Lib\ProductCreator;
 use App\Models\Session;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
 use Shopify\Auth\OAuth;
-use Shopify\Auth\Session as AuthSession;
 use Shopify\Clients\HttpHeaders;
-use Shopify\Clients\Rest;
 use Shopify\Context;
 use Shopify\Exception\InvalidWebhookException;
 use Shopify\Utils;
@@ -35,9 +32,15 @@ use Shopify\Webhooks\Topics;
 
 // Serve Vite build assets directly from frontend/dist/assets
 Route::get('/assets/{path}', function ($path) {
-    $filePath = base_path("frontend/dist/assets/{$path}");
+    $assetsDirectory = realpath(base_path('frontend/dist/assets'));
+    $filePath = $assetsDirectory ? realpath($assetsDirectory . DIRECTORY_SEPARATOR . $path) : false;
 
-    if (!file_exists($filePath)) {
+    // Only serve existing files that are really inside frontend/dist/assets (blocks "../" path traversal)
+    if (
+        !$filePath
+        || strpos($filePath, $assetsDirectory . DIRECTORY_SEPARATOR) !== 0
+        || !is_file($filePath)
+    ) {
         abort(404);
     }
 
@@ -54,10 +57,14 @@ Route::get('/assets/{path}', function ($path) {
         'gif' => 'image/gif',
     ];
 
-    $extension = pathinfo($path, PATHINFO_EXTENSION);
+    $extension = strtolower(pathinfo($filePath, PATHINFO_EXTENSION));
     $mimeType = $mimeTypes[$extension] ?? 'application/octet-stream';
 
-    return response()->file($filePath, ['Content-Type' => $mimeType]);
+    // Vite gives built assets content-hashed file names, so browsers can cache them for a long time
+    return response()->file($filePath, [
+        'Content-Type' => $mimeType,
+        'Cache-Control' => 'public, max-age=31536000, immutable',
+    ]);
 })->where('path', '.*');
 
 Route::fallback(function (Request $request) {
@@ -72,12 +79,26 @@ Route::fallback(function (Request $request) {
         
         abort(404, 'Frontend index.html not found.');
     } else {
-        return redirect(Utils::getEmbeddedAppUrl($request->query("host", null)) . "/" . $request->path());
+        $host = $request->query("host");
+        $shop = $request->query("shop");
+        $embeddedAppUrl = EmbeddedAppUrl::build(
+            is_string($host) ? $host : null,
+            is_string($shop) ? $shop : null
+        );
+
+        if ($embeddedAppUrl === null) {
+            abort(400, 'Missing or invalid host and shop query arguments.');
+        }
+
+        $path = ltrim($request->path(), '/');
+
+        return redirect($embeddedAppUrl . ($path === '' ? '' : "/$path"));
     }
 })->middleware('shopify.installed');
 
 Route::get('/api/auth', function (Request $request) {
-    $shop = Utils::sanitizeShopDomain((string)$request->query('shop'));
+    $shopQuery = $request->query('shop');
+    $shop = Utils::sanitizeShopDomain(is_string($shopQuery) ? $shopQuery : '');
 
     // Delete any previously created OAuth sessions that were not completed (don't have an access token)
     Session::where('shop', $shop)->where('access_token', null)->delete();
@@ -92,8 +113,8 @@ Route::get('/api/auth/callback', function (Request $request) {
         ['App\Lib\CookieHandler', 'saveShopifyCookie'],
     );
 
-    $host = $request->query('host');
-    $shop = Utils::sanitizeShopDomain((string)$request->query('shop'));
+    $host = is_string($request->query('host')) ? $request->query('host') : null;
+    $shop = $session->getShop();
 
     $response = Registry::register('/api/webhooks', Topics::APP_UNINSTALLED, $shop, $session->getAccessToken());
     if ($response->isSuccess()) {
@@ -105,7 +126,7 @@ Route::get('/api/auth/callback', function (Request $request) {
         );
     }
 
-    $redirectUrl = Utils::getEmbeddedAppUrl($host);
+    $redirectUrl = EmbeddedAppUrl::build($host, $session->getShop());
     if (Config::get('shopify.billing.required')) {
         list($hasPayment, $confirmationUrl) = EnsureBilling::check($session, Config::get('shopify.billing'));
 
@@ -117,55 +138,17 @@ Route::get('/api/auth/callback', function (Request $request) {
     return redirect($redirectUrl);
 });
 
-Route::get('/api/products/count', function (Request $request) {
-    /** @var AuthSession */
-    $session = $request->get('shopifySession'); // Provided by the shopify.auth middleware, guaranteed to be active
-
-    $client = new Rest($session->getShop(), $session->getAccessToken());
-    $result = $client->get('products/count');
-
-    return response($result->getDecodedBody());
-})->middleware('shopify.auth');
-
-Route::get('/api/products/create', function (Request $request) {
-    /** @var AuthSession */
-    $session = $request->get('shopifySession'); // Provided by the shopify.auth middleware, guaranteed to be active
-
-    $success = $code = $error = null;
-    try {
-        ProductCreator::call($session, 5);
-        $success = true;
-        $code = 200;
-        $error = null;
-    } catch (\Exception $e) {
-        $success = false;
-
-        if ($e instanceof ShopifyProductCreatorException) {
-            $code = $e->response->getStatusCode();
-            $error = $e->response->getDecodedBody();
-            if (array_key_exists("errors", $error)) {
-                $error = $error["errors"];
-            }
-        } else {
-            $code = 500;
-            $error = $e->getMessage();
-        }
-
-        Log::error("Failed to create products: $error");
-    } finally {
-        return response()->json(["success" => $success, "error" => $error], $code);
-    }
-})->middleware('shopify.auth');
-
 Route::post('/api/webhooks', function (Request $request) {
-    try {
-        $topic = $request->header(HttpHeaders::X_SHOPIFY_TOPIC, '');
+    $topic = $request->header(HttpHeaders::X_SHOPIFY_TOPIC, '');
 
+    try {
         $response = Registry::process($request->header(), $request->getContent());
         if (!$response->isSuccess()) {
             Log::error("Failed to process '$topic' webhook: {$response->getErrorMessage()}");
             return response()->json(['message' => "Failed to process '$topic' webhook"], 500);
         }
+
+        return response()->json(['message' => 'OK']);
     } catch (InvalidWebhookException $e) {
         Log::error("Got invalid webhook request for topic '$topic': {$e->getMessage()}");
         return response()->json(['message' => "Got invalid webhook request for topic '$topic'"], 401);
