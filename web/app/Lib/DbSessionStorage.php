@@ -56,13 +56,22 @@ class DbSessionStorage implements SessionStorage
         if (!$dbSession) {
             $dbSession = new \App\Models\Session();
         }
+        // Keeps the token when OAuth starts, and drops stale refresh tokens when a new token is stored
+        $keepExistingToken = OfflineTokenManager::prepareSessionRecord(
+            $dbSession,
+            $session->isOnline(),
+            $session->getAccessToken()
+        );
+
         $dbSession->session_id = $session->getId();
         $dbSession->shop = $session->getShop();
         $dbSession->state = $session->getState();
         $dbSession->is_online = $session->isOnline();
-        $dbSession->access_token = $session->getAccessToken();
-        $dbSession->expires_at = $session->getExpires();
-        $dbSession->scope = $session->getScope();
+        if (!$keepExistingToken) {
+            $dbSession->access_token = $session->getAccessToken();
+            $dbSession->expires_at = $session->getExpires();
+            $dbSession->scope = $session->getScope();
+        }
         if (!empty($session->getOnlineAccessInfo())) {
             $dbSession->user_id = $session->getOnlineAccessInfo()->getId();
             $dbSession->user_first_name = $session->getOnlineAccessInfo()->getFirstName();

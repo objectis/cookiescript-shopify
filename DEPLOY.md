@@ -115,6 +115,65 @@ cd frontend && SHOPIFY_API_KEY=<live app client id> yarn build
 
 Restart PHP-FPM. No database changes need to be undone. Saved settings stay compatible with the previous version.
 
+## Upgrading to 1.2.0 (expiring offline tokens)
+
+Deploy 1.2.0 only after 1.1.0 is live and working. It converts each shop's offline access token to Shopify's new
+expiring tokens (required from January 1, 2027) and adds three columns to the `sessions` table.
+
+**Test it locally first** (with the development app, against your development store):
+
+```bash
+cd web
+php artisan migrate
+cd ..
+npm run dev          # open the app in the development store and save something, e.g. Google Consent Mode
+```
+
+Then, in `web`, run `php artisan shopify:migrate-offline-tokens`. It should print
+`All offline access tokens already expire. Nothing to migrate.` because saving already converted the token.
+To check that automatic refresh works, mark the token as expired and save in the app again (it must still succeed):
+
+```bash
+php artisan tinker --execute='App\Models\Session::where("is_online", false)->update(["access_token_expires_at" => now()->subMinute()]);'
+```
+
+**On the server:**
+
+1. Back up as in step 2 (`db.sqlite`, `.env`, current commit).
+2. Update the code as in step 4: `git pull`, `rm -f bootstrap/cache/packages.php bootstrap/cache/services.php`,
+   `composer install --no-dev --optimize-autoloader --no-interaction`, **`php artisan migrate --force`** (adds the
+   new columns), clear the caches. The admin UI didn't change, so rebuilding it (step 5) is optional.
+3. Restart PHP (step 6).
+4. Open the app in one store and save something. `storage/logs/laravel.log` should show
+   `Migrated the offline access token to an expiring token`.
+5. Convert all remaining shops:
+
+   ```bash
+   cd /home/shopify/public_html/web
+   php artisan shopify:migrate-offline-tokens
+   ```
+
+   Shops listed as "not migrated" are retried automatically when they next save; you can also run the command
+   again later. It is safe to run any number of times.
+
+   Run `php artisan` commands as the same user that runs the website (the owner of the site files, e.g. the SSH
+   user on shared hosting), not as `root`. Otherwise the cache/lock files they create can't be used by the website.
+
+**Good to know:** the storefront banner never needs the token, only saving settings does. If a merchant doesn't save
+anything for more than 90 days, their refresh token expires; on their next save the app automatically sends them
+through Shopify's authorization once (they confirm it, then save again).
+
+**Rollback:** 1.1.0 can't refresh expiring tokens, and Shopify invalidates the old token during conversion. So
+before checking out 1.1.0, clear the converted tokens; merchants then re-authorize the app the next time they open
+it, and 1.1.0 keeps working:
+
+```bash
+cd /home/shopify/public_html/web
+php artisan tinker --execute='App\Models\Session::whereNotNull("refresh_token")->update(["access_token" => null, "access_token_expires_at" => null, "refresh_token" => null, "refresh_token_expires_at" => null]);'
+```
+
+Then roll back as described in "Rollback" above. Don't run `migrate:rollback`; the extra columns are harmless.
+
 ## Notes
 
 - **Don't run `npm run deploy`** for this release. The live app's Shopify configuration doesn't need to change, and

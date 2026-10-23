@@ -4,7 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Http\Controllers\Traits\SessionTrait;
 use App\Lib\CookieScriptUrl;
+use App\Lib\OfflineTokenManager;
 use App\Lib\ThemeScriptBuilder;
+use App\Lib\TopLevelRedirection;
 use App\Models\DomainBannerSetting;
 use App\Models\ScriptSrc;
 use Illuminate\Http\Request;
@@ -20,6 +22,9 @@ class ScriptController extends Controller
     private const SNIPPET_NAME = 'google_consent_mode_script';
 
     private const THEME_UPDATE_FAILED = 'Failed to update the store theme. Please try again.';
+
+    /** Set when Shopify rejects the access token itself (not a missing permission) */
+    private bool $accessTokenRejected = false;
 
     public function addScript(Request $request)
     {
@@ -61,7 +66,7 @@ class ScriptController extends Controller
             // Keep the database in sync with the theme, so the merchant can simply try again
             $scriptSrc->delete();
 
-            return response()->json(['error' => $publishResult['error']], $publishResult['status']);
+            return $this->publishErrorResponse($request, $session, $publishResult);
         }
 
         return response()->json(['message' => 'Script added successfully', 'script' => $scriptSrc]);
@@ -104,7 +109,7 @@ class ScriptController extends Controller
             $scriptSrc->exists = false;
             $scriptSrc->save();
 
-            return response()->json(['error' => $publishResult['error']], $publishResult['status']);
+            return $this->publishErrorResponse($request, $session, $publishResult);
         }
 
         return response()->json(['message' => 'Script removed successfully']);
@@ -121,7 +126,7 @@ class ScriptController extends Controller
         $publishResult = $this->publishScriptsToTheme($session);
 
         if (!$publishResult['success']) {
-            return response()->json(['error' => $publishResult['error']], $publishResult['status']);
+            return $this->publishErrorResponse($request, $session, $publishResult);
         }
 
         return response()->json(["OK"]);
@@ -255,7 +260,7 @@ class ScriptController extends Controller
                 $domainBannerSetting->update($previousValues);
             }
 
-            return response()->json(['error' => $publishResult['error']], $publishResult['status']);
+            return $this->publishErrorResponse($request, $session, $publishResult);
         }
 
         return response()->json(['statusText' => 'Domain banner map saved successfully']);
@@ -269,12 +274,47 @@ class ScriptController extends Controller
     private function publishScriptsToTheme(Session $session): array
     {
         $shop = $session->getShop();
-        $accessToken = $session->getAccessToken();
+
+        // Expiring offline tokens are migrated/refreshed here, right before the Admin API is used
+        try {
+            $tokenResult = OfflineTokenManager::accessToken($shop);
+        } catch (\Throwable $exception) {
+            Log::error('Could not get the offline access token', ['shop' => $shop, 'exception' => $exception]);
+            $tokenResult = ['token' => null, 'reauthorize' => false];
+        }
+
+        if ($tokenResult['reauthorize']) {
+            return [
+                'success' => false,
+                'status' => 401,
+                'error' => 'Please open the app again to re-authorize it.',
+                'reauthorize' => true,
+            ];
+        }
+
+        $accessToken = $tokenResult['token'];
+
+        if (!$accessToken) {
+            return ['success' => false, 'status' => 503, 'error' => self::THEME_UPDATE_FAILED];
+        }
+
         $scriptContent = null;
 
         try {
             $scriptContent = $this->generateScriptContent($shop);
             $themeId = $this->getMainThemeId($shop, $accessToken);
+
+            if ($this->accessTokenRejected) {
+                // e.g. a non-expiring token after Shopify's deadline: the merchant has to re-authorize the app
+                OfflineTokenManager::invalidate($shop, $accessToken);
+
+                return [
+                    'success' => false,
+                    'status' => 401,
+                    'error' => 'Please open the app again to re-authorize it.',
+                    'reauthorize' => true,
+                ];
+            }
 
             if (
                 $themeId
@@ -348,6 +388,19 @@ class ScriptController extends Controller
         }
     }
 
+    /**
+     * Error response for a failed theme update. When the access token can't be renewed, the App Bridge frontend is
+     * told to send the merchant through OAuth again (handled by useAuthenticatedFetch).
+     */
+    private function publishErrorResponse(Request $request, Session $session, array $publishResult)
+    {
+        if (!empty($publishResult['reauthorize'])) {
+            return TopLevelRedirection::redirect($request, '/api/auth?shop=' . urlencode($session->getShop()));
+        }
+
+        return response()->json(['error' => $publishResult['error']], $publishResult['status']);
+    }
+
     private function adminApiUrl(string $shop, string $path): string
     {
         $apiVersion = Config::get('shopify.rest_api_version', '2023-04');
@@ -361,6 +414,10 @@ class ScriptController extends Controller
             ->get($this->adminApiUrl($shop, 'themes.json'));
 
         if (!$themeResponse->successful()) {
+            $this->accessTokenRejected = $themeResponse->status() === 401
+                || ($themeResponse->status() === 403
+                    && stripos($themeResponse->body(), 'Non-expiring access tokens are no longer accepted') !== false);
+
             Log::error('Failed to fetch themes', ['shop' => $shop, 'response' => $themeResponse->body()]);
             return null;
         }

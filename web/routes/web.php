@@ -3,6 +3,7 @@
 use App\Lib\AuthRedirection;
 use App\Lib\EmbeddedAppUrl;
 use App\Lib\EnsureBilling;
+use App\Lib\OfflineTokenManager;
 use App\Models\Session;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Config;
@@ -116,7 +117,12 @@ Route::get('/api/auth/callback', function (Request $request) {
     $host = is_string($request->query('host')) ? $request->query('host') : null;
     $shop = $session->getShop();
 
-    $response = Registry::register('/api/webhooks', Topics::APP_UNINSTALLED, $shop, $session->getAccessToken());
+    // Shopify requires expiring offline tokens for public apps: convert the newly issued token right away.
+    // If that fails temporarily, the issued token keeps working and the conversion is retried on the next save.
+    $accessToken = OfflineTokenManager::migrateAfterInstall($shop) ?? $session->getAccessToken();
+    $session->setAccessToken($accessToken);
+
+    $response = Registry::register('/api/webhooks', Topics::APP_UNINSTALLED, $shop, $accessToken);
     if ($response->isSuccess()) {
         Log::debug("Registered APP_UNINSTALLED webhook for shop $shop");
     } else {

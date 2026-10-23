@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers\Traits;
 
+use App\Lib\TopLevelRedirection;
 use Exception;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Shopify\Auth\Session;
@@ -30,8 +32,15 @@ trait SessionTrait
             return null;
         }
 
-        if (!$session || !$session->getAccessToken()) {
+        if (!$session) {
             return null;
+        }
+
+        if (!$session->getAccessToken()) {
+            // The token was revoked or could not be renewed: send the merchant through OAuth again
+            throw new HttpResponseException(
+                TopLevelRedirection::redirect($request, '/api/auth?shop=' . urlencode($session->getShop()))
+            );
         }
 
         return $session;

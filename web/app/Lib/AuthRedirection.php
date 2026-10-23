@@ -17,6 +17,11 @@ class AuthRedirection
         $shopQuery = $request->query("shop");
         $shop = (string) Utils::sanitizeShopDomain(is_string($shopQuery) ? $shopQuery : '');
 
+        // Without a valid shop there is nothing to authenticate against (e.g. bots opening the app URL directly)
+        if ($shop === '') {
+            abort(400, 'Missing or invalid shop parameter.');
+        }
+
         if (Context::$IS_EMBEDDED_APP && $request->query("embedded", null) === "1") {
             $redirectUrl = self::clientSideRedirectUrl($shop, $request->query());
         } else {

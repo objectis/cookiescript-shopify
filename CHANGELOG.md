@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.2.0 (2026-10-23)
+
+### Shopify requirement: expiring offline access tokens
+Shopify stops accepting non-expiring offline access tokens for public apps on January 1, 2027.
+- New installations get an expiring offline token (valid 1 hour) with a refresh token (valid up to 90 days).
+- Existing shops are converted automatically the next time they save settings in the app, or all at once with
+  `php artisan shopify:migrate-offline-tokens`.
+- Tokens are refreshed automatically shortly before they expire. If Shopify rejects a refresh token, the merchant
+  is sent through re-authorization the next time they use the app.
+- New database columns on `sessions`: `access_token_expires_at`, `refresh_token`, `refresh_token_expires_at`.
+
+- If Shopify rejects a token for an Admin API request (e.g. a non-expiring token after the deadline), the merchant
+  is asked to re-authorize instead of seeing an error.
+
+### Fixes
+- Opening the app URL without a valid `shop` parameter returns 400 instead of a server error.
+- Starting OAuth (`/api/auth?shop=...`, which needs no login) no longer clears the shop's stored access token.
+
 ## 1.1.0 (2026-10-22)
 
 ### New
