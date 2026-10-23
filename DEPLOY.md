@@ -59,6 +59,9 @@ who are in the middle of installing the app just start the install again.
 
 ```bash
 cd /home/shopify/public_html
+php -v                               # must be PHP 8.1 or newer (composer.lock requires it)
+git status                           # must not list modified files, except possibly web/bootstrap/cache
+git checkout -- web/bootstrap/cache  # discard the server's regenerated cache files so git pull can't conflict
 git pull
 cd web
 

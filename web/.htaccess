@@ -1,10 +1,7 @@
-# Block hidden files such as .env if the web server's document root is above web/public
-<FilesMatch "^\.">
-    <IfModule mod_authz_core.c>
-        Require all denied
-    </IfModule>
-    <IfModule !mod_authz_core.c>
-        Order deny,allow
-        Deny from all
-    </IfModule>
-</FilesMatch>
+# Block hidden files such as .env if the web server's document root is above web/public.
+# Uses mod_rewrite (like web/public/.htaccess), so it works with the same hosting permissions.
+# web/public/.htaccess has its own rewrite rules, which take precedence for the app itself.
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule (^|/)\. - [F,L]
+</IfModule>

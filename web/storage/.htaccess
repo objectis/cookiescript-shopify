@@ -1,8 +1,6 @@
-# Never serve storage (database, logs, sessions) over HTTP, even if the web root is set too high
-<IfModule mod_authz_core.c>
-    Require all denied
-</IfModule>
-<IfModule !mod_authz_core.c>
-    Order deny,allow
-    Deny from all
+# Never serve storage (database, logs, sessions) over HTTP, even if the web root is set too high.
+# Uses mod_rewrite (like web/public/.htaccess), so it works with the same hosting permissions.
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^ - [F,L]
 </IfModule>
