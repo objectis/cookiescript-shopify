@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Controllers\Traits\SessionTrait;
 use App\Lib\CookieScriptUrl;
 use App\Lib\OfflineTokenManager;
+use App\Lib\ScopeCheck;
 use App\Lib\ThemeScriptBuilder;
 use App\Lib\TopLevelRedirection;
 use App\Models\DomainBannerSetting;
@@ -25,6 +26,9 @@ class ScriptController extends Controller
 
     /** Set when Shopify rejects the access token itself (not a missing permission) */
     private bool $accessTokenRejected = false;
+
+    /** Set when Shopify says the merchant hasn't approved a scope the app needs (e.g. read_themes) */
+    private bool $scopeApprovalRequired = false;
 
     public function addScript(Request $request)
     {
@@ -316,6 +320,26 @@ class ScriptController extends Controller
                 ];
             }
 
+            if ($this->scopeApprovalRequired) {
+                // The shop installed the app before the theme scopes were added. OAuth shows the merchant the
+                // approval screen for them; the existing token keeps working in the meantime.
+                if (ScopeCheck::claimReauthorization($shop)) {
+                    return [
+                        'success' => false,
+                        'status' => 401,
+                        'error' => 'Please approve the updated app permissions.',
+                        'reauthorize' => true,
+                    ];
+                }
+
+                return [
+                    'success' => false,
+                    'status' => 403,
+                    'error' => 'The app is missing permission to edit your theme. Please reinstall the app or '
+                        . 'contact support.',
+                ];
+            }
+
             if (
                 $themeId
                 && $this->createScriptSnippet($shop, $accessToken, $themeId, $scriptContent)
@@ -417,6 +441,10 @@ class ScriptController extends Controller
             $this->accessTokenRejected = $themeResponse->status() === 401
                 || ($themeResponse->status() === 403
                     && stripos($themeResponse->body(), 'Non-expiring access tokens are no longer accepted') !== false);
+            $this->scopeApprovalRequired = ScopeCheck::isMissingScopeError(
+                $themeResponse->status(),
+                $themeResponse->body()
+            );
 
             Log::error('Failed to fetch themes', ['shop' => $shop, 'response' => $themeResponse->body()]);
             return null;

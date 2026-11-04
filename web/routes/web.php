@@ -4,6 +4,7 @@ use App\Lib\AuthRedirection;
 use App\Lib\EmbeddedAppUrl;
 use App\Lib\EnsureBilling;
 use App\Lib\OfflineTokenManager;
+use App\Lib\ScopeCheck;
 use App\Models\Session;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Config;
@@ -116,6 +117,15 @@ Route::get('/api/auth/callback', function (Request $request) {
 
     $host = is_string($request->query('host')) ? $request->query('host') : null;
     $shop = $session->getShop();
+
+    if (!ScopeCheck::hasRequiredScopes($session->getScope())) {
+        // Usually means the app's configuration in the Partner Dashboard doesn't request these scopes
+        Log::error('OAuth completed without all required scopes', [
+            'shop' => $shop,
+            'granted' => $session->getScope(),
+            'missing' => ScopeCheck::missingScopes($session->getScope()),
+        ]);
+    }
 
     // Shopify requires expiring offline tokens for public apps: convert the newly issued token right away.
     // If that fails temporarily, the issued token keeps working and the conversion is retried on the next save.

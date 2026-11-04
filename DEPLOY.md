@@ -174,6 +174,47 @@ php artisan tinker --execute='App\Models\Session::whereNotNull("refresh_token")-
 
 Then roll back as described in "Rollback" above. Don't run `migrate:rollback`; the extra columns are harmless.
 
+## Upgrading to 1.2.1 (missing theme scopes)
+
+Fixes "Main theme not found" for shops that installed the app before `read_themes`/`write_themes` were added
+(log: `Failed to fetch themes ... requires merchant approval for read_themes scope`). Such shops are sent through
+Shopify's approval screen once, the next time they open the app. **No database migrations, no frontend rebuild.**
+
+**Before deploying, check:**
+- The production `web/.env` has `SCOPES_READ=read_script_tags,write_script_tags,read_themes,write_themes`.
+- In the Partner Dashboard, the live app's active version lists `read_themes` and `write_themes` as access scopes.
+  Otherwise the approval screen doesn't grant them and merchants see "The app is missing permission to edit your
+  theme" instead.
+
+**Commit and tag (on your PC):**
+
+```bash
+git add CHANGELOG.md DEPLOY.md package.json web/app web/routes web/tests
+git status          # web/.env, web/.env.testing and web/bootstrap/cache must not be listed
+git commit -m "Release 1.2.1: ask merchants to approve missing theme scopes"
+git tag v1.2.1
+git push && git push --tags
+```
+
+**On the server:**
+
+1. Back up as in step 2 (`db.sqlite`, `.env`, current commit).
+2. Update the code as in step 4: `git checkout -- web/bootstrap/cache`, `git pull`,
+   `rm -f bootstrap/cache/packages.php bootstrap/cache/services.php`,
+   `composer install --no-dev --optimize-autoloader --no-interaction`, clear the caches.
+   (`php artisan migrate --force` is safe but has nothing to do.)
+3. Restart PHP (step 6).
+4. Open the app in a store and add a script. Then check the log:
+
+   ```bash
+   grep -E "Failed to fetch themes|OAuth completed without all required scopes" storage/logs/laravel.log | tail
+   ```
+
+   New `Failed to fetch themes ... read_themes` lines should stop once merchants approve. `OAuth completed without
+   all required scopes` means the live app's configuration doesn't request the theme scopes (see the checks above).
+
+**Rollback:** check out the 1.2.0 commit and follow "Rollback" above (no database changes to undo).
+
 ## Notes
 
 - **Don't run `npm run deploy`** for this release. The live app's Shopify configuration doesn't need to change, and

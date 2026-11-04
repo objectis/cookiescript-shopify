@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.2.1 (2026-11-04)
+
+### Fixes
+- Shops that installed the app before the theme scopes were added saw "Main theme not found" when adding a script
+  (Shopify: `This action requires merchant approval for read_themes scope`). The app now compares the shop's granted
+  scopes with `SCOPES_READ` when it is opened and sends the merchant through Shopify's approval screen for the
+  missing scopes. If saving hits the same error, the merchant is sent to the approval screen instead of seeing
+  "Main theme not found". A 10-minute cooldown per shop prevents a redirect loop if the scopes still aren't granted.
+- An OAuth callback that returns without all required scopes is logged as `OAuth completed without all required scopes`.
+
 ## 1.2.0 (2026-10-23)
 
 ### Shopify requirement: expiring offline access tokens
