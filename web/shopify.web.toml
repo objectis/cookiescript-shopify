@@ -1,5 +1,6 @@
 type="backend"
 
 [commands]
-dev = "composer serve"
+# The Shopify CLI passes the backend port as SERVER_PORT, which "php artisan serve" uses
+dev = "php artisan serve"
 build = "composer build"
