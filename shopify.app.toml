@@ -1,3 +1,19 @@
-# This file stores configurations for your Shopify app.
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
-scopes = "read_script_tags,write_script_tags,read_themes,write_themes"
+client_id = "f1ccfcd872c5f4bafb4aa08c45d58e19"
+name = "test.cookiescript"
+application_url = "https://example.com"
+embedded = true
+
+[webhooks]
+api_version = "2027-01"
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "read_script_tags,read_themes,write_script_tags,write_themes"
+
+[auth]
+redirect_urls = [ "https://example.com/api/auth" ]
+
+[build]
+automatically_update_urls_on_dev = true

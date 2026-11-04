@@ -1,0 +1,27 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "444619ca3904f79f338f460150e1fd17"
+name = "CookieScript"
+handle = "cookiescript"
+application_url = "https://sapp.cookie-script.com/"
+embedded = true
+
+[webhooks]
+api_version = "2023-01"
+
+  [[webhooks.subscriptions]]
+  uri = "/api/webhooks"
+  compliance_topics = [ "customers/data_request", "customers/redact", "shop/redact" ]
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "read_script_tags,write_script_tags,read_themes,write_themes"
+optional_scopes = [ ]
+use_legacy_install_flow = false
+
+[auth]
+redirect_urls = [
+  "https://sapp.cookie-script.com/auth/callback",
+  "https://sapp.cookie-script.com/auth/shopify/callback",
+  "https://sapp.cookie-script.com/api/auth/callback"
+]
